@@ -1,6 +1,6 @@
 """
 FastAPI server — the HTTP interface for the agent graph.
-Receives webhooks from the Node.js app, Viber, scheduled tasks, etc.
+Receives webhooks, handles multi-turn conversations via thread IDs.
 """
 from __future__ import annotations
 
@@ -15,14 +15,13 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from agents_runtime.graph import company_graph
-from agents_runtime.state import CompanyState
+from agents_runtime.memory import thread_id_for_customer, thread_id_for_task
 from agents_runtime.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("ava")
 
 
-# ── Lifespan (startup / shutdown) ──────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("AVA starting up — Zero-Human Company agent runtime")
@@ -35,26 +34,24 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OpenClaw Balkan — AVA Agent Runtime",
     description="Zero-Human Company powered by LangGraph",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
 
 # ── Models ──────────────────────────────────────────────────────
 class InboundMessage(BaseModel):
-    """Generic inbound message from any channel."""
-    channel: str = "web"          # viber, whatsapp, email, web
-    sender_id: str = ""           # channel-specific user ID
+    channel: str = "web"
+    sender_id: str = ""
     sender_name: str = ""
     sender_phone: str = ""
     sender_email: str = ""
     text: str
-    market: str = ""              # ba, rs
+    market: str = ""
     metadata: dict = {}
 
 
 class OrderWebhook(BaseModel):
-    """Webhook from the Node.js app when a new order is placed."""
     event: str = "new_order"
     orderRef: str
     bundleId: str
@@ -69,7 +66,6 @@ class OrderWebhook(BaseModel):
 
 
 class OnboardingWebhook(BaseModel):
-    """Webhook triggered 5min after provisioning."""
     event: str = "onboarding_start"
     orderRef: str
     bundleId: str
@@ -81,22 +77,30 @@ class OnboardingWebhook(BaseModel):
     market: str = ""
 
 
-class ScheduledTask(BaseModel):
-    """Manual trigger for scheduled tasks."""
-    task: str  # billing_run, marketing_post, ops_check, daily_report
-
-
-# ── Helper: run the graph ──────────────────────────────────────
-async def run_graph(message: str, **extra_state) -> dict:
-    """Invoke the company graph with a message and optional state overrides."""
+# ── Graph invocation ───────────────────────────────────────────
+async def run_graph(
+    message: str,
+    thread_id: str = "",
+    **extra_state,
+) -> dict:
+    """Invoke the company graph with persistent thread context."""
     initial_state = {
         "messages": [HumanMessage(content=message)],
         **extra_state,
     }
+
+    # Config with thread_id for checkpointer (multi-turn memory)
+    config = {}
+    if thread_id:
+        config = {"configurable": {"thread_id": thread_id}}
+
     try:
-        result = await asyncio.to_thread(company_graph.invoke, initial_state)
+        result = await asyncio.to_thread(
+            company_graph.invoke, initial_state, config
+        )
         return {
             "ok": True,
+            "thread_id": thread_id,
             "agent": result.get("current_agent", ""),
             "response": result.get("final_response", ""),
             "actions": result.get("actions_taken", []),
@@ -113,43 +117,72 @@ async def health():
     return {
         "ok": True,
         "service": "ava-agent-runtime",
+        "version": "2.0.0",
         "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/api/agents")
+async def list_agents():
+    """List all configured agents with their tools."""
+    from agents_runtime.agents import TOOL_SETS, AGENT_MODELS, SOUL_NAMES
+    from agents_runtime.memory import get_checkpointer
+    agents = {}
+    for name in TOOL_SETS:
+        agents[name] = {
+            "model": AGENT_MODELS.get(name, "default"),
+            "soul": SOUL_NAMES.get(name, name),
+            "tools": [t.name for t in TOOL_SETS[name]],
+            "tool_count": len(TOOL_SETS[name]),
+        }
+    return {
+        "ok": True,
+        "agents": agents,
+        "total_tools": sum(len(v) for v in TOOL_SETS.values()),
+        "persistent_memory": get_checkpointer() is not None,
     }
 
 
 @app.post("/api/message")
 async def handle_message(msg: InboundMessage):
-    """Handle an inbound customer message from any channel."""
+    """Handle an inbound customer message (multi-turn via sender_id)."""
     logger.info(f"Inbound [{msg.channel}] from {msg.sender_name or msg.sender_id}: {msg.text[:80]}")
 
-    result = await run_graph(
+    thread = thread_id_for_customer(
+        msg.sender_id or msg.sender_email or msg.sender_phone,
+        msg.channel,
+    )
+
+    return await run_graph(
         message=msg.text,
+        thread_id=thread,
         customer_name=msg.sender_name,
         customer_email=msg.sender_email,
         customer_phone=msg.sender_phone,
         customer_channel=msg.channel,
         customer_market=msg.market,
     )
-    return result
 
 
 @app.post("/api/webhook/order")
 async def handle_order_webhook(order: OrderWebhook):
-    """Handle new order webhook from the Node.js app."""
+    """Handle new order — routes to onboarding agent."""
     logger.info(f"New order: {order.orderRef} — {order.bundleName} for {order.customerName}")
 
+    thread = thread_id_for_customer(order.email or order.phone, order.preferredChannel)
+
     message = (
-        f"Neue Bestellung eingegangen: {order.orderRef}\n"
+        f"Neue Bestellung: {order.orderRef}\n"
         f"Kunde: {order.customerName} ({order.company})\n"
         f"Bundle: {order.bundleName} ({order.price} EUR)\n"
-        f"Kanal: {order.preferredChannel}\n"
-        f"Markt: {order.market}\n"
+        f"Kanal: {order.preferredChannel} | Markt: {order.market}\n"
         f"Kontakt: {order.email} / {order.phone}\n\n"
-        f"Bitte Onboarding starten."
+        f"Bitte starte den Onboarding-Prozess."
     )
 
-    result = await run_graph(
+    return await run_graph(
         message=message,
+        thread_id=thread,
         task_type="inbound_order",
         order_ref=order.orderRef,
         bundle_id=order.bundleId,
@@ -162,7 +195,6 @@ async def handle_order_webhook(order: OrderWebhook):
         customer_channel=order.preferredChannel,
         customer_market=order.market,
     )
-    return result
 
 
 @app.post("/api/webhook/onboarding")
@@ -170,16 +202,18 @@ async def handle_onboarding_webhook(data: OnboardingWebhook):
     """Handle onboarding trigger (5min after provisioning)."""
     logger.info(f"Onboarding trigger: {data.orderRef} for {data.customerName}")
 
+    thread = thread_id_for_customer(data.email or data.phone, data.preferredChannel)
+
     message = (
         f"Provisioning abgeschlossen fuer {data.orderRef}.\n"
         f"Kunde: {data.customerName} ({data.company})\n"
         f"Bundle: {data.bundleId}\n"
-        f"Bitte kontaktiere den Kunden auf {data.preferredChannel} "
-        f"und fuehre das Onboarding durch."
+        f"Kontaktiere den Kunden auf {data.preferredChannel} und fuehre das Onboarding durch."
     )
 
-    result = await run_graph(
+    return await run_graph(
         message=message,
+        thread_id=thread,
         task_type="inbound_order",
         order_ref=data.orderRef,
         bundle_id=data.bundleId,
@@ -190,19 +224,17 @@ async def handle_onboarding_webhook(data: OnboardingWebhook):
         customer_channel=data.preferredChannel,
         customer_market=data.market,
     )
-    return result
 
 
 @app.post("/api/webhook/viber")
 async def handle_viber_webhook(request: Request):
-    """Handle incoming Viber webhook (messages from customers)."""
+    """Handle incoming Viber webhooks."""
     body = await request.json()
     event = body.get("event", "")
 
     if event == "message":
         sender = body.get("sender", {})
         message_obj = body.get("message", {})
-
         msg = InboundMessage(
             channel="viber",
             sender_id=sender.get("id", ""),
@@ -210,7 +242,6 @@ async def handle_viber_webhook(request: Request):
             text=message_obj.get("text", ""),
         )
         return await handle_message(msg)
-
     elif event == "webhook":
         return {"ok": True, "event": "webhook_verified"}
 
@@ -219,61 +250,59 @@ async def handle_viber_webhook(request: Request):
 
 @app.post("/api/scheduled/{task_name}")
 async def handle_scheduled_task(task_name: str):
-    """Execute a scheduled task by name."""
-    logger.info(f"Scheduled task triggered: {task_name}")
+    """Execute a scheduled task."""
+    logger.info(f"Scheduled task: {task_name}")
 
-    TASK_MESSAGES = {
-        "billing_run": (
-            "Es ist der 1. des Monats. Bitte erstelle Rechnungen fuer alle aktiven Kunden "
-            "und sende sie per Email. Pruefe auch die Hosting-Kosten bei Hetzner."
-        ),
-        "marketing_post": (
-            "Erstelle und veroeffentliche den naechsten Social-Media-Post "
-            "gemaess dem Content-Kalender. Pruefe auch die Website-Analytics."
-        ),
-        "ops_check": (
-            "Fuehre einen vollstaendigen Infrastruktur-Check durch: "
-            "Container-Status, Health-Endpoints, Disk/Memory/CPU, SSL-Zertifikat."
-        ),
-        "daily_report": (
-            "Erstelle den taeglichen Statusbericht: "
-            "Neue Leads/Orders, System-Health, offene Probleme, Marketing-Metriken."
-        ),
-        "payment_reminder": (
-            "Pruefe alle offenen Rechnungen. Sende Zahlungserinnerungen "
-            "fuer Rechnungen die aelter als 10 Tage sind."
-        ),
+    TASKS = {
+        "billing_run": {
+            "msg": "Es ist der 1. des Monats. Erstelle Rechnungen fuer alle aktiven Kunden und sende sie per Email. Pruefe auch die Hetzner-Hosting-Kosten.",
+            "type": "scheduled_billing",
+        },
+        "marketing_post": {
+            "msg": "Erstelle und veroeffentliche den naechsten Social-Media-Post gemaess Content-Kalender. Pruefe die Website-Analytics.",
+            "type": "scheduled_marketing",
+        },
+        "ops_check": {
+            "msg": "Fuehre einen vollstaendigen Infrastruktur-Check durch: Container-Status, Health-Endpoints, Disk, Memory, CPU, SSL.",
+            "type": "scheduled_ops",
+        },
+        "daily_report": {
+            "msg": "Erstelle den taeglichen Statusbericht: Neue Leads/Orders, System-Health, offene Probleme, Marketing-Metriken.",
+            "type": "scheduled_report",
+        },
+        "payment_reminder": {
+            "msg": "Pruefe offene Rechnungen. Sende Erinnerungen fuer Rechnungen aelter als 10 Tage.",
+            "type": "scheduled_billing",
+        },
     }
 
-    message = TASK_MESSAGES.get(task_name)
-    if not message:
+    task = TASKS.get(task_name)
+    if not task:
         raise HTTPException(404, f"Unknown task: {task_name}")
 
-    task_type_map = {
-        "billing_run": "scheduled_billing",
-        "marketing_post": "scheduled_marketing",
-        "ops_check": "scheduled_ops",
-        "daily_report": "scheduled_report",
-        "payment_reminder": "scheduled_billing",
-    }
+    thread = thread_id_for_task(task_name)
 
-    result = await run_graph(
-        message=message,
-        task_type=task_type_map.get(task_name, "manual"),
+    return await run_graph(
+        message=task["msg"],
+        thread_id=thread,
+        task_type=task["type"],
     )
-    return result
 
 
-# ── Direct agent invocation (for testing) ──────────────────────
 @app.post("/api/invoke/{agent_name}")
 async def invoke_agent_directly(agent_name: str, msg: InboundMessage):
-    """Bypass supervisor and invoke a specific agent directly (for testing)."""
-    result = await run_graph(
+    """Bypass supervisor — invoke a specific agent (for testing)."""
+    thread = thread_id_for_customer(
+        msg.sender_id or msg.sender_email or "test",
+        msg.channel,
+    )
+    # Force routing by setting next_agent
+    return await run_graph(
         message=msg.text,
+        thread_id=thread,
         next_agent=agent_name,
         customer_name=msg.sender_name,
         customer_email=msg.sender_email,
         customer_phone=msg.sender_phone,
         customer_channel=msg.channel,
     )
-    return result
