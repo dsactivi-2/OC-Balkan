@@ -15,6 +15,7 @@ export const markets = {
     bundles: [
       {
         icon: "🤖",
+        bundleKey: "solo",
         name: "Solo Agent",
         price: "25",
         period: "EUR / mj.",
@@ -26,6 +27,7 @@ export const markets = {
       },
       {
         icon: "📚",
+        bundleKey: "learning",
         name: "Learning Buddy",
         price: "29",
         period: "EUR / mj.",
@@ -37,6 +39,7 @@ export const markets = {
       },
       {
         icon: "📱",
+        bundleKey: "marketing",
         name: "Social Marketing Team",
         price: "39",
         period: "EUR / mj.",
@@ -49,6 +52,7 @@ export const markets = {
       },
       {
         icon: "🔬",
+        bundleKey: "research",
         name: "Research Bundle",
         price: "49",
         period: "EUR / mj.",
@@ -60,6 +64,7 @@ export const markets = {
       },
       {
         icon: "🏢",
+        bundleKey: "office",
         name: "Office Bundle",
         price: "79",
         period: "EUR / mj.",
@@ -125,6 +130,7 @@ export const markets = {
     bundles: [
       {
         icon: "🤖",
+        bundleKey: "solo",
         name: "Solo Agent",
         price: "25",
         period: "EUR / mes.",
@@ -136,6 +142,7 @@ export const markets = {
       },
       {
         icon: "📚",
+        bundleKey: "learning",
         name: "Learning Buddy",
         price: "29",
         period: "EUR / mes.",
@@ -147,6 +154,7 @@ export const markets = {
       },
       {
         icon: "📱",
+        bundleKey: "marketing",
         name: "Social Marketing Team",
         price: "39",
         period: "EUR / mes.",
@@ -159,6 +167,7 @@ export const markets = {
       },
       {
         icon: "🔬",
+        bundleKey: "research",
         name: "Research Bundle",
         price: "49",
         period: "EUR / mes.",
@@ -170,6 +179,7 @@ export const markets = {
       },
       {
         icon: "🏢",
+        bundleKey: "office",
         name: "Office Bundle",
         price: "79",
         period: "EUR / mes.",

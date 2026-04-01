@@ -32,8 +32,8 @@ function markup(c) {
     <h1>${esc(c.title[0])}<br><em>${esc(c.title[1])}</em></h1>
     <p class="hero-sub">${esc(c.sub)}</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="#kontakt">${esc(c.cta)} →</a>
-      <a class="btn btn-ghost" href="#bundlovi">${esc(c.ctaSub)}</a>
+      <a class="btn btn-primary" href="#bundlovi">${esc(c.ctaSub)} →</a>
+      <a class="btn btn-ghost" href="#kontakt">${esc(c.cta)}</a>
     </div>
     <div class="trust-row">
       <span class="trust-item">24/7 dostupnost</span>
@@ -65,7 +65,7 @@ function markup(c) {
             <ul>${b.agents.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>
           </div>
           <div class="bundle-channels">${esc(b.channels)}</div>
-          <a class="btn btn-primary bundle-cta" href="#kontakt">${esc(c.cta)} →</a>
+          <button class="btn btn-primary bundle-cta" data-bundle="${esc(b.bundleKey)}" data-name="${esc(b.name)}" data-price="${esc(b.price)}">Naruči ${esc(b.name)} →</button>
         </div>
       `).join("")}
     </div>
@@ -75,7 +75,7 @@ function markup(c) {
   <!-- HOW IT WORKS -->
   <section class="section reveal" id="koraci">
     <div class="section-label">Kako radi</div>
-    <h2>Od dogovora do agenta za 5 dana.</h2>
+    <h2>Od narudžbe do agenta za 5 dana.</h2>
     <p class="section-intro" style="margin-bottom: 28px;">Bez IT projekata. Bez dugih implementacija.</p>
     <div class="steps">
       ${c.steps.map((s) => `
@@ -97,7 +97,7 @@ function markup(c) {
       <div class="pilot-items">
         ${c.pilotItems.map((i) => `<span class="pilot-item">${esc(i)}</span>`).join("")}
       </div>
-      <a class="btn btn-primary" href="#kontakt" style="font-size:16px; height:52px; padding:0 28px;">${esc(c.cta)} →</a>
+      <a class="btn btn-primary" href="#bundlovi" style="font-size:16px; height:52px; padding:0 28px;">Pogledaj bundlove →</a>
     </div>
   </section>
 
@@ -115,44 +115,23 @@ function markup(c) {
     </div>
   </section>
 
-  <!-- CONTACT -->
+  <!-- CONTACT (simple, no form — orders handle it now) -->
   <section class="section reveal" id="kontakt">
     <div class="section-label">Kontakt</div>
-    <h2>Zatraži demo ili pilot procjenu.</h2>
-    <p class="section-intro" style="margin-bottom:32px;">${esc(c.contactBlurb)}</p>
-    <div class="contact-grid">
-      <form class="lead-form" id="lead-form" novalidate>
-        <label>Ime i prezime<input name="name" type="text" required placeholder="npr. Ana Kovačević" /></label>
-        <label>Firma<input name="company" type="text" required placeholder="naziv firme" /></label>
-        <label>Email<input name="email" type="email" required placeholder="vas@email.ba" /></label>
-        <label>Telefon / WhatsApp<input name="phone" type="text" placeholder="+387 61 ..." /></label>
-        <div class="hp-field" aria-hidden="true">
-          <label>Website<input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
-        </div>
-        <label>Koji bundle vas zanima?
-          <select name="segment" required>
-            <option value="">Izaberi</option>
-            <option value="solo">Solo Agent (25 EUR)</option>
-            <option value="learning">Learning Buddy (29 EUR)</option>
-            <option value="marketing">Social Marketing Team (39 EUR)</option>
-            <option value="research">Research Bundle (49 EUR)</option>
-            <option value="office">Office Bundle (79 EUR)</option>
-            <option value="unsure">Nisam siguran/a</option>
-          </select>
-        </label>
-        <label>Šta želite riješiti?<textarea name="message" rows="3" required placeholder="Kratki opis situacije..."></textarea></label>
-        <button class="btn btn-primary" type="submit" style="width:100%; height:48px; font-size:15px; justify-content:center;">Pošalji upit →</button>
-        <p class="form-status" id="form-status" aria-live="polite"></p>
-      </form>
-      <div class="contact-side">
-        <div class="contact-card">
-          <h3>Šta ide dalje</h3>
-          <ul>${liItems(c.nextSteps)}</ul>
-        </div>
-        <div class="contact-card" style="background: rgba(62,207,142,0.04); border-color: rgba(62,207,142,0.2);">
-          <h3 style="font-size:14px; color: var(--muted); margin-bottom:10px;">Direktno</h3>
-          <p style="font-size:14px;">Možete nas kontaktirati i direktno via WhatsApp ili Messenger.</p>
-        </div>
+    <h2>Imate pitanje?</h2>
+    <p class="section-intro" style="margin-bottom:32px;">Za narudžbe kliknite "Naruči" na bundlu iznad. Za ostala pitanja:</p>
+    <div class="contact-options">
+      <div class="contact-card">
+        <h3>Email</h3>
+        <p style="font-size:15px;">info@openclawbalkan.ba</p>
+      </div>
+      <div class="contact-card">
+        <h3>WhatsApp</h3>
+        <p style="font-size:15px;">+387 61 xxx xxx</p>
+      </div>
+      <div class="contact-card">
+        <h3>Viber</h3>
+        <p style="font-size:15px;">+387 61 xxx xxx</p>
       </div>
     </div>
   </section>
@@ -163,10 +142,59 @@ function markup(c) {
   </footer>
 
 </main>
+
+<!-- ORDER MODAL -->
+<div class="modal-overlay" id="order-modal" hidden>
+  <div class="modal">
+    <button class="modal-close" id="modal-close" aria-label="Zatvori">&times;</button>
+    <div class="modal-badge" id="modal-badge"></div>
+    <h2 id="modal-title"></h2>
+    <p class="modal-price" id="modal-price"></p>
+    <form class="order-form" id="order-form" novalidate>
+      <input type="hidden" name="bundle" id="order-bundle" />
+      <label>Ime i prezime<input name="name" type="text" required placeholder="npr. Ana Kovačević" /></label>
+      <label>Firma<input name="company" type="text" required placeholder="naziv firme" /></label>
+      <label>Email<input name="email" type="email" required placeholder="vas@email.ba" /></label>
+      <label>Telefon / WhatsApp<input name="phone" type="tel" required placeholder="+387 61 ..." /></label>
+      <div class="hp-field" aria-hidden="true">
+        <label>Website<input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
+      </div>
+      <label>Tip biznisa
+        <select name="businessType">
+          <option value="">Izaberi (opciono)</option>
+          <option value="salon">Salon / frizerski</option>
+          <option value="restaurant">Restoran / kafić</option>
+          <option value="office">Ordinacija / kancelarija</option>
+          <option value="education">Škola / edukacija</option>
+          <option value="freelancer">Freelancer</option>
+          <option value="other">Drugo</option>
+        </select>
+      </label>
+      <label>Željeni kanal za komunikaciju
+        <select name="preferredChannel" required>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="viber">Viber</option>
+          <option value="email">Email</option>
+        </select>
+      </label>
+      <label>Napomena (opciono)<textarea name="message" rows="2" placeholder="Bilo šta što nam može pomoći u setupu..."></textarea></label>
+      <button class="btn btn-primary" type="submit" style="width:100%; height:52px; font-size:16px; justify-content:center;">Naruči →</button>
+      <p class="form-status" id="order-status" aria-live="polite"></p>
+    </form>
+    <div class="order-success" id="order-success" hidden>
+      <div class="success-icon">✓</div>
+      <h3>Narudžba primljena!</h3>
+      <p class="order-ref" id="order-ref-display"></p>
+      <p>Naš onboarding agent će vas kontaktirati u roku od 24 sata preko vašeg odabranog kanala da dogovorimo setup.</p>
+      <button class="btn btn-ghost" id="modal-done" style="width:100%; justify-content:center; margin-top:16px;">Zatvori</button>
+    </div>
+  </div>
+</div>
 `;
 }
 
 function enhancePage() {
+  // Smooth scrolling
   document.querySelectorAll('a[href^="#"]').forEach((link) => {
     link.addEventListener("click", (e) => {
       const id = link.getAttribute("href");
@@ -177,6 +205,7 @@ function enhancePage() {
     });
   });
 
+  // Reveal animations
   const observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
@@ -190,48 +219,100 @@ function enhancePage() {
   );
   document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
 
-  const form = document.getElementById("lead-form");
-  const status = document.getElementById("form-status");
-  if (!form || !status) return;
+  // ── Order Modal ─────────────────────────────────────────────
+  const modal = document.getElementById("order-modal");
+  const modalClose = document.getElementById("modal-close");
+  const modalDone = document.getElementById("modal-done");
+  const modalBadge = document.getElementById("modal-badge");
+  const modalTitle = document.getElementById("modal-title");
+  const modalPrice = document.getElementById("modal-price");
+  const orderForm = document.getElementById("order-form");
+  const orderBundle = document.getElementById("order-bundle");
+  const orderStatus = document.getElementById("order-status");
+  const orderSuccess = document.getElementById("order-success");
+  const orderRefDisplay = document.getElementById("order-ref-display");
 
-  form.addEventListener("submit", (e) => {
+  if (!modal || !orderForm) return;
+
+  function openModal(bundleKey, bundleName, bundlePrice) {
+    orderBundle.value = bundleKey;
+    modalBadge.textContent = bundlePrice + " EUR / mj.";
+    modalTitle.textContent = bundleName;
+    modalPrice.textContent = `Naručujete: ${bundleName}`;
+    orderForm.style.display = "";
+    orderSuccess.hidden = true;
+    orderStatus.textContent = "";
+    modal.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    document.body.style.overflow = "";
+    orderForm.reset();
+  }
+
+  // Bundle card buttons
+  document.querySelectorAll(".bundle-cta[data-bundle]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openModal(btn.dataset.bundle, btn.dataset.name, btn.dataset.price);
+    });
+  });
+
+  modalClose.addEventListener("click", closeModal);
+  if (modalDone) modalDone.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) closeModal();
+  });
+
+  // Order form submit
+  orderForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!(form instanceof HTMLFormElement)) return;
+    if (!(orderForm instanceof HTMLFormElement)) return;
 
-    const data = Object.fromEntries(new FormData(form).entries());
-    const required = ["name", "company", "email", "segment", "message"];
+    const data = Object.fromEntries(new FormData(orderForm).entries());
+    const required = ["name", "company", "email", "phone", "bundle"];
     if (required.some((f) => !String(data[f] || "").trim())) {
-      status.textContent = "Popuni obavezna polja.";
-      status.className = "form-status error";
+      orderStatus.textContent = "Popunite obavezna polja.";
+      orderStatus.className = "form-status error";
       return;
     }
 
-    status.textContent = "Slanje u toku...";
-    status.className = "form-status";
+    orderStatus.textContent = "Šaljem narudžbu...";
+    orderStatus.className = "form-status";
 
-    fetch("/api/leads", {
+    const submitBtn = orderForm.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+
+    fetch("/api/orders", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...data,
+        market: document.documentElement.lang === "sr" ? "rs" : "ba",
         page: location.pathname,
       }),
     })
       .then(async (response) => {
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
-          throw new Error(error.error || "Submit failed");
+          throw new Error(error.error || "Order failed");
         }
-
-        form.reset();
-        status.textContent = "✓ Upit sačuvan. Javimo se uskoro.";
-        status.className = "form-status success";
+        return response.json();
       })
-      .catch(() => {
-        status.textContent = "Slanje nije uspelo. Pokušajte ponovo ili nas kontaktirajte direktno.";
-        status.className = "form-status error";
+      .then((result) => {
+        orderForm.style.display = "none";
+        orderRefDisplay.textContent = `Referenca: ${result.orderRef}`;
+        orderSuccess.hidden = false;
+      })
+      .catch((err) => {
+        orderStatus.textContent = err.message || "Greška pri slanju. Pokušajte ponovo.";
+        orderStatus.className = "form-status error";
+        if (submitBtn) submitBtn.disabled = false;
       });
   });
 }
