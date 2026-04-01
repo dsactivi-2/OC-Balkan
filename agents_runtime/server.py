@@ -9,7 +9,11 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from langchain_core.messages import HumanMessage
@@ -37,6 +41,20 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+# ── Static Dashboard ──────────────────────────────────────────
+STATIC_DIR = Path(__file__).parent / "static"
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/dashboard")
+async def serve_dashboard():
+    """Serve the AVA Command Center dashboard."""
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    raise HTTPException(404, "Dashboard not found")
 
 
 # ── Models ──────────────────────────────────────────────────────
