@@ -1,0 +1,345 @@
+# =============================================================================
+# OpenClaw Balkan — Bundle 5: Solo Agent
+# Version: 1.0 | Stand: 2026-03-31
+# Zielgruppe: Freelancer, Einzelunternehmer, Einzelpersonen
+# =============================================================================
+
+bundle:
+  name: "Solo Agent"
+  id: "solo_agent"
+  version: "1.0"
+  language: ["bs", "sr"]
+  target_audience: "Freelanceri, samostalni poduzetnici, male firme sa jednim zaposlenim"
+  description: "Jedan specijalizirani agent za tvoj biznis — odgovara na pitanja klijenata, prima zahtjeve ili zakazuje termine. Jednostavno, pristupacno, efikasno."
+  max_cloud_budget_usd: 3.0
+
+# =============================================================================
+# Solo Agent je TEMPLATE — korisnik bira ulogu prilikom onboardinga.
+# Jedna od 4 uloge se aktivira, ostale su neaktivne.
+# =============================================================================
+
+agent_roles:
+  available:
+    - "faq_agent"
+    - "lead_intake"
+    - "appointment_intake"
+    - "document_search"
+  selection: "onboarding"
+  max_active: 1
+
+agents:
+  # ---- OPCIJA A: FAQ Agent ----
+  - name: "FAQ Agent"
+    id: "faq_agent"
+    role: "faq_responder"
+    active_when: "role_selection == 'faq_agent'"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "pitanje izvan baze, kompleksna formulacija"
+    channels:
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "{business_name}"
+      - type: "facebook_messenger"
+        config:
+          page_token: "{facebook_page_token}"
+      # Korisnik bira 2 kanala od ponudjenih
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_knowledge"
+      embedding_model: "bge-m3"
+      max_documents: 100
+      purpose: "FAQ baza, cjenovnik, radno vrijeme, lokacija, osnovne informacije o biznisu"
+    tools:
+      - name: "search_faq"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_knowledge"
+          top_k: 3
+          score_threshold: 0.6
+        description: "Pretrazuje FAQ bazu za odgovor na pitanje korisnika"
+      - name: "escalate_to_owner"
+        type: "viber_api"
+        config:
+          receiver: "{owner_viber_id}"
+        description: "Eskalira pitanje vlasniku ako odgovor nije u bazi"
+    system_prompt: |
+      Ti si digitalni asistent za {business_name}. Odgovaras na pitanja klijenata na osnovu baze znanja.
+
+      PRAVILA:
+      1. UVIJEK pretrazuj bazu znanja prije odgovora.
+      2. Ako odgovor postoji u bazi — odgovori jasno i kratko (max 3 recenice).
+      3. Ako odgovor NIJE u bazi — reci: "Hvala na pitanju! Za detaljniji odgovor, kontaktirajte nas direktno na {business_phone}."
+      4. Budi prijateljski ali profesionalan. Koristi "Vi" formu.
+      5. Nikada ne izmisljaj cijene, radno vrijeme ili informacije koje nisu u bazi.
+      6. Ako korisnik pita za nesto izvan tvoje nadleznosti — eskaliraj vlasniku.
+      7. Maksimalna duzina odgovora: 3 recenice.
+      8. Pozdravi korisnika na pocetku razgovora: "Dobro dosli! Kako Vam mogu pomoci?"
+      9. Na kraju odgovora ponudi: "Imate li jos neko pitanje?"
+
+      INFORMACIJE O BIZNISU:
+      Naziv: {business_name}
+      Telefon: {business_phone}
+      Adresa: {business_address}
+      Radno vrijeme: {business_hours}
+
+  # ---- OPCIJA B: Lead Intake Agent ----
+  - name: "Lead Intake Agent"
+    id: "lead_intake"
+    role: "lead_collector"
+    active_when: "role_selection == 'lead_intake'"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "kvalifikacija leada, kompleksan upit"
+    channels:
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "{business_name}"
+      - type: "facebook_messenger"
+        config:
+          page_token: "{facebook_page_token}"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_leads"
+      embedding_model: "bge-m3"
+      max_documents: 100
+      purpose: "Baza prikupljenih leadova — ime, kontakt, upit, status"
+    tools:
+      - name: "save_lead"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/save-lead"
+          method: "POST"
+          payload_schema:
+            name: "string"
+            phone: "string"
+            email: "string|null"
+            inquiry: "string"
+            urgency: "low|medium|high"
+        description: "Sprema novi lead u bazu i obavjestava vlasnika"
+      - name: "notify_owner"
+        type: "viber_api"
+        config:
+          receiver: "{owner_viber_id}"
+        description: "Salje vlasniku obavijest o novom leadu"
+      - name: "search_faq"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_knowledge"
+          top_k: 3
+        description: "Pretrazuje bazu za osnovne informacije"
+    system_prompt: |
+      Ti si Lead Intake Agent za {business_name}. Tvoj posao je prikupiti kontakt podatke i upit od potencijalnog klijenta.
+
+      PRAVILA:
+      1. Pozdravi korisnika i kratko predstavi biznis (1 recenica).
+      2. Prikupi sljedece podatke (korak po korak, ne sve odjednom):
+         a) Ime i prezime
+         b) Kontakt telefon
+         c) Kratki opis sta im treba / u cemu im mozes pomoci
+         d) Hitnost (hitno / moze sacekati / samo se informisem)
+      3. Budi prirodan u razgovoru — ne pitaj kao formular. Npr: "Kako se zovete?" umjesto "Unesite ime i prezime."
+      4. Kada imas sve podatke — potvrdi: "Hvala, [ime]! Prosljedjujem Vas upit nasem timu. Javicemo Vam se u najkracem roku."
+      5. Spremi lead i obavijesti vlasnika.
+      6. Ako korisnik pita pitanje iz baze znanja — odgovori kratko, pa nastavi sa prikupljanjem podataka.
+      7. Nikada ne obecavaj konkretne rokove: "Javicemo Vam se uskoro" — NE "Javicemo Vam se za 30 minuta."
+
+  # ---- OPCIJA C: Appointment Intake Agent ----
+  - name: "Appointment Intake Agent"
+    id: "appointment_intake"
+    role: "appointment_collector"
+    active_when: "role_selection == 'appointment_intake'"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "kompleksno zakazivanje, vise termina"
+    channels:
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "{business_name}"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_appointments"
+      embedding_model: "bge-m3"
+      max_documents: 100
+      purpose: "Zahtjevi za termine — ime, datum, vrijeme, usluga"
+    tools:
+      - name: "create_appointment_request"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/appointment-request"
+          method: "POST"
+          payload_schema:
+            name: "string"
+            phone: "string"
+            preferred_date: "string"
+            preferred_time: "string"
+            service: "string"
+        description: "Kreira zahtjev za termin — vlasnik potvrdjuje rucno"
+      - name: "notify_owner"
+        type: "viber_api"
+        config:
+          receiver: "{owner_viber_id}"
+        description: "Obavjestava vlasnika o novom zahtjevu za termin"
+      - name: "search_faq"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_knowledge"
+          top_k: 3
+        description: "Pretrazuje bazu za radno vrijeme, usluge, cijene"
+    system_prompt: |
+      Ti si Termin Agent za {business_name}. Primas zahtjeve za termine od klijenata.
+
+      PRAVILA:
+      1. Pozdravi i pitaj za sta im treba termin.
+      2. Prikupi korak po korak:
+         a) Usluga koju trebaju
+         b) Ime i prezime
+         c) Kontakt telefon
+         d) Preferirani datum i vrijeme
+      3. NE potvrdjiuj termin — reci: "Hvala! Vas zahtjev je zabiljezen. Potvrdićemo termin u toku dana."
+      4. Spremi zahtjev i obavijesti vlasnika.
+      5. Radno vrijeme: {business_hours}. Ako korisnik trazi termin van radnog vremena — ponudi alternativu.
+      6. Budi ljubazan, kratak, efikasan. Max 3 recenice po poruci.
+
+      PRIMJER:
+      Korisnik: "Zdravo, trebam termin za sisanje"
+      Agent: "Dobro dosli! Rado cu zabiljeziti Vas zahtjev. Mozete li mi reci Vase ime i koji Vam datum/vrijeme najbolje odgovara?"
+
+  # ---- OPCIJA D: Document Search Agent ----
+  - name: "Document Search Agent"
+    id: "document_search"
+    role: "document_searcher"
+    active_when: "role_selection == 'document_search'"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "kompleksno pitanje, analiza dokumenta"
+    channels:
+      - type: "webchat"
+        config:
+          widget_url: "https://{customer_slug}.openclawbalkan.ba/widget"
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_documents"
+      embedding_model: "bge-m3"
+      max_documents: 100
+      purpose: "Upload-ovani dokumenti — uputstva, prirucnici, interna dokumentacija"
+    tools:
+      - name: "search_documents"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_documents"
+          top_k: 5
+          score_threshold: 0.6
+        description: "Pretrazuje upload-ovane dokumente"
+      - name: "upload_document"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/document-upload"
+          method: "POST"
+          supported_formats: ["pdf", "docx", "txt"]
+          max_size_mb: 10
+        description: "Upload-uje novi dokument u bazu"
+    system_prompt: |
+      Ti si Document Search Agent za {business_name}. Pretrazujes internu dokumentaciju i odgovaras na pitanja na osnovu upload-ovanih dokumenata.
+
+      PRAVILA:
+      1. Uvijek pretrazuj dokumente prije odgovora.
+      2. Citiraj izvor: "Prema dokumentu [naziv], [odgovor]."
+      3. Ako odgovor nije u dokumentima — jasno reci: "Nisam nasao odgovor u dostupnim dokumentima."
+      4. Ne izmisljaj informacije — samo koristi ono sto je u bazi.
+      5. Ako korisnik zeli upload-ovati dokument — vodi ga kroz proces.
+      6. Maksimalan odgovor: 5 recenica. Za detaljniji odgovor pitaj: "Zelite li detaljniji prikaz?"
+
+integrations:
+  - name: "Viber Business"
+    type: "messaging"
+    config:
+      bsp: "sinch"
+      auth_token: "{viber_auth_token}"
+      sender_name: "{business_name}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/viber"
+    available_for: ["faq_agent", "lead_intake", "appointment_intake"]
+
+  - name: "Facebook Messenger"
+    type: "messaging"
+    config:
+      page_token: "{facebook_page_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/messenger"
+    available_for: ["faq_agent", "lead_intake"]
+
+  - name: "WhatsApp Business"
+    type: "messaging"
+    config:
+      provider: "meta_cloud_api"
+      phone_number_id: "{whatsapp_phone_id}"
+      access_token: "{whatsapp_access_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/whatsapp"
+    available_for: ["faq_agent", "lead_intake", "appointment_intake"]
+
+  - name: "Telegram Bot"
+    type: "messaging"
+    config:
+      bot_token: "{telegram_bot_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/telegram"
+    available_for: ["document_search"]
+
+  - name: "Web Widget"
+    type: "webchat"
+    config:
+      url: "https://{customer_slug}.openclawbalkan.ba/widget"
+      theme: "light"
+      position: "bottom-right"
+    available_for: ["faq_agent", "document_search"]
+
+  - name: "n8n"
+    type: "automation"
+    config:
+      base_url: "{n8n_base}"
+      workflows:
+        - "save-lead"
+        - "appointment-request"
+        - "document-upload"
+
+pricing:
+  base_monthly_eur: 25
+  included_agents: 1
+  included_channels: 2
+  per_extra_channel_monthly_eur: 9
+  estimated_token_cost_monthly_eur: 1
+  cloud_budget_limit_usd: 3
+  target_margin_percent: 80
+  upgrade_path:
+    trigger: "60 dana aktivne upotrebe + 120 obradjenih poruka"
+    suggestion: "Upgrade na Social Marketing Team ili Office Bundle"
+    discount: "Prvih 30 dana nove pretplate — 20% popust"
+
+onboarding:
+  required_from_customer:
+    - "Naziv biznisa"
+    - "Tip biznisa (frizzer, kafic, freelancer, itd.)"
+    - "Odabir uloge agenta (FAQ / Lead Intake / Appointment / Document Search)"
+    - "Odabir 2 kanala (Viber, Messenger, WhatsApp, Telegram, Web Widget)"
+    - "Kontakt telefon vlasnika (za eskalacije)"
+    - "Radno vrijeme"
+    - "5 najcescih pitanja klijenata (za FAQ bazu)"
+    - "Logo (opciono)"
+  setup_duration_minutes: 8
+  auto_deploy: true

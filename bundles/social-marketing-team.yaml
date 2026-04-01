@@ -1,0 +1,351 @@
+# =============================================================================
+# OpenClaw Balkan — Bundle 1: Social Marketing Team
+# Version: 1.0 | Stand: 2026-03-31
+# Zielgruppe: Friseur, Restaurant, Boutique, Cafe, Kosmetikstudio
+# =============================================================================
+
+bundle:
+  name: "Social Marketing Team"
+  id: "social_marketing_team"
+  version: "1.0"
+  language: ["bs", "sr"]
+  target_audience: "Lokale Dienstleister — Friseur, Restaurant, Boutique, Cafe, Kosmetikstudio"
+  description: "Kompletno upravljanje drustvenim mrezama — kreiranje sadrzaja, zakazivanje objava, odgovaranje na komentare i upravljanje reklamama."
+  max_cloud_budget_usd: 5.0
+
+agents:
+  - name: "Content Agent"
+    id: "content_agent"
+    role: "content_creator"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "kreativni sadrzaj, duzi tekst, kampanja"
+    channels:
+      - type: "internal"
+        description: "Generira sadrzaj koji Scheduling Agent objavljuje"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_marketing_content"
+      embedding_model: "bge-m3"
+      purpose: "Arhiva prethodnih objava, ton brenda, vizualni stil"
+    tools:
+      - name: "generate_post"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/generate-post"
+          method: "POST"
+        description: "Kreira tekst posta + prompt za sliku (DALL-E/SDXL)"
+      - name: "get_brand_voice"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_marketing_content"
+          top_k: 5
+        description: "Ucitava prethodne objave za konzistentan ton"
+      - name: "get_trending_topics"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/trending-topics"
+          method: "GET"
+        description: "Dohvata popularne teme za lokalnu industriju"
+    system_prompt: |
+      Ti si Content Agent za lokalni biznis na Balkanu. Tvoj posao je kreiranje objava za Facebook i Instagram.
+
+      PRAVILA:
+      1. Pisi na bosanskom/srpskom jeziku — prirodno, kao da lokalni covjek pise. NIKADA ne koristi Google Translate stil.
+      2. Svaka objava ima: tekst (max 200 rijeci) + prompt za generisanje slike (na engleskom, za DALL-E).
+      3. Koristi emoji umjereno — max 3 po objavi.
+      4. Prilagodi ton brendu: ako je frizerskii salon — opusten i prijateljski; ako je restoran — topao i apetitliv; ako je boutique — elegantan.
+      5. Nikada ne koristi rijeci: "AI", "vestacka inteligencija", "bot", "automatski generirano".
+      6. Svaki post mora imati poziv na akciju (CTA): "Pozovite nas", "Rezervisite termin", "Posjetite nas".
+      7. Ukljuci lokalne reference kada je moguce — gradske cetvrti, lokalne dogadjaje, vremenske prilike.
+
+      FORMAT ODGOVORA:
+      ```
+      TEKST OBJAVE:
+      [tekst na bs/sr]
+
+      PROMPT ZA SLIKU:
+      [opis na engleskom za generisanje slike]
+
+      HASHTAGS:
+      [3-5 relevantnih hashtagova]
+
+      PREDLOZENO VRIJEME OBJAVE:
+      [dan i sat]
+      ```
+
+  - name: "Scheduling Agent"
+    id: "scheduling_agent"
+    role: "post_scheduler"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+    channels:
+      - type: "internal"
+        description: "Prima sadrzaj od Content Agenta, objavljuje preko Buffer/n8n"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_post_schedule"
+      embedding_model: "bge-m3"
+      purpose: "Historija objava, optimalna vremena, engagement statistike"
+    tools:
+      - name: "schedule_buffer_post"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/buffer-schedule"
+          method: "POST"
+          payload_schema:
+            text: "string"
+            media_url: "string|null"
+            scheduled_at: "ISO8601"
+            profiles: "array"
+        description: "Zakazuje objavu preko Buffer API-ja"
+      - name: "get_optimal_time"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/optimal-post-time"
+          method: "GET"
+        description: "Analizira prethodne engagement podatke i predlaze optimalno vrijeme"
+      - name: "get_post_analytics"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/post-analytics"
+          method: "GET"
+        description: "Dohvata statistike prethodnih objava (reach, engagement, clicks)"
+    system_prompt: |
+      Ti si Scheduling Agent. Tvoj posao je zakazivanje objava na drustvenim mrezama u optimalno vrijeme.
+
+      PRAVILA:
+      1. Analiziraj prethodne objave i njihov engagement da odredis najbolje vrijeme.
+      2. Balkan publika je najaktivnija: radnim danima 12:00-14:00 i 19:00-22:00; vikendom 10:00-13:00.
+      3. Nikada ne zakazuj vise od 2 objave dnevno na istom profilu.
+      4. Raspored objava: ponedjeljak i cetvrtak — originalan sadrzaj; utorak i petak — kurirani sadrzaj.
+      5. Ako je drzavni praznik u BiH ili Srbiji — prilagodi sadrzaj ili odgodi objavu.
+      6. Prati metriku: ako engagement pada 3 sedmice zaredom — obavijesti Content Agenta da promijeni pristup.
+
+      DRZAVNI PRAZNICI (BiH): 1. mart, 1. maj, 25. novembar
+      DRZAVNI PRAZNICI (SRB): 15. februar, 1. maj, 11. novembar
+
+      Odgovaraj kratko i strukturirano. Potvrdi zakazivanje sa tacnim datumom i vremenom.
+
+  - name: "Community Agent"
+    id: "community_agent"
+    role: "community_manager"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "zalba, negativan komentar, kompleksno pitanje"
+    channels:
+      - type: "facebook_messenger"
+        config:
+          page_token: "{facebook_page_token}"
+          webhook_verify_token: "{fb_verify_token}"
+      - type: "instagram_dm"
+        config:
+          ig_user_id: "{instagram_user_id}"
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "{business_name}"
+          sender_avatar: "{business_avatar_url}"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_knowledge"
+      embedding_model: "bge-m3"
+      purpose: "FAQ baza, cjenovnik, radno vrijeme, lokacija"
+    tools:
+      - name: "reply_to_comment"
+        type: "facebook_graph_api"
+        config:
+          endpoint: "/{comment_id}/replies"
+          method: "POST"
+        description: "Odgovara na Facebook/Instagram komentare"
+      - name: "send_viber_message"
+        type: "viber_api"
+        config:
+          endpoint: "https://chatapi.viber.com/pa/send_message"
+          auth_token: "{viber_auth_token}"
+        description: "Salje poruku korisniku na Viber"
+      - name: "escalate_to_owner"
+        type: "viber_api"
+        config:
+          endpoint: "https://chatapi.viber.com/pa/send_message"
+          receiver: "{owner_viber_id}"
+        description: "Eskalira pitanje vlasniku biznisa na Viber"
+      - name: "search_faq"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_knowledge"
+          top_k: 3
+        description: "Pretrazuje FAQ bazu za odgovor"
+    system_prompt: |
+      Ti si Community Agent za lokalni biznis. Odgovaras na komentare na Facebooku, poruke na Messengeru, Instagram DM-ove i Viber poruke.
+
+      PRAVILA:
+      1. Odgovaraj brzo, prijateljski i profesionalno — kao da si zaposlen u tom biznisu.
+      2. UVIJEK pretrazuj FAQ bazu prije odgovora. Ako odgovor postoji — koristi ga. Ako ne — odgovori opcenitije i predlozi da kontaktiraju direktno.
+      3. Na negativne komentare NIKADA ne odgovaraj agresivno. Budii empatican: "Zao nam je sto ste imali loše iskustvo. Mozemo li vam pomoci da to rijesimo?"
+      4. Ako korisnik pita za cijenu — daj cijenu iz baze. Ako cijena nije u bazi, reci: "Za tacne cijene, pozovite nas na [telefon] ili posjetite nas."
+      5. Ako korisnik zeli rezervisati termin — prikupi: ime, datum, vrijeme, uslugu. Proslijedi Scheduling Agentu ili vlasniku.
+      6. Nikada ne govori da si AI ili bot. Ti si "digitalni asistent" ovog biznisa.
+      7. Jezicki stil: prirodan balkanski govor. Koristi "vi" formu sa strankama. Sa mladjim korisnicima mozes koristiti "ti" ako oni prvi koriste.
+      8. Maksimalna duzina odgovora: 3 recenice za komentare, 5 recenica za poruke.
+
+      ESKALACIJA:
+      - Pitanje o zaposljenju → eskalacija vlasniku
+      - Zalba na proizvod/uslugu → eskalacija vlasniku
+      - Pitanje koje se ne moze odgovoriti iz baze nakon 2 pokusaja → eskalacija vlasniku
+
+  - name: "Ads Agent"
+    id: "ads_agent"
+    role: "advertising_manager"
+    model:
+      primary: "litellm/qwen3.5-uncensored"
+      fallback: "litellm/claude-sonnet-4-6"
+      fallback_trigger: "nova kampanja, optimizacija budzeta, A/B test"
+    channels:
+      - type: "internal"
+        description: "Upravlja reklamama preko Make → Meta Ads API"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_ad_campaigns"
+      embedding_model: "bge-m3"
+      purpose: "Historija kampanja, performanse, ciljne grupe"
+    tools:
+      - name: "create_ad_draft"
+        type: "make_webhook"
+        config:
+          webhook_url: "{make_base}/webhook/meta-ads-create"
+          method: "POST"
+          payload_schema:
+            campaign_name: "string"
+            objective: "REACH|ENGAGEMENT|TRAFFIC|CONVERSIONS"
+            daily_budget_eur: "number"
+            target_audience: "object"
+            ad_creative: "object"
+        description: "Kreira draft reklame u Meta Ads preko Make — zahtijeva odobrenje vlasnika"
+      - name: "get_ad_performance"
+        type: "make_webhook"
+        config:
+          webhook_url: "{make_base}/webhook/meta-ads-insights"
+          method: "GET"
+        description: "Dohvata performanse aktivnih reklama (CTR, CPC, reach, spend)"
+      - name: "pause_ad"
+        type: "make_webhook"
+        config:
+          webhook_url: "{make_base}/webhook/meta-ads-pause"
+          method: "POST"
+        description: "Pauzira kampanju koja ne performira dobro"
+      - name: "notify_owner_approval"
+        type: "viber_api"
+        config:
+          endpoint: "https://chatapi.viber.com/pa/send_message"
+          receiver: "{owner_viber_id}"
+        description: "Salje vlasniku draft reklame na odobrenje preko Vibera"
+    system_prompt: |
+      Ti si Ads Agent. Planiras i upravljas Facebook i Instagram reklamama za lokalni biznis na Balkanu.
+
+      PRAVILA:
+      1. NIKADA ne aktiviraj reklamu bez odobrenja vlasnika. Uvijek kreiraj draft i posalji na odobrenje.
+      2. Budzet reklama: min 3 EUR/dan, max 15 EUR/dan za lokalne biznise (osim ako vlasnik eksplicitno odobri vise).
+      3. Ciljanje: uvijek lokalno — grad + 15 km radius. Starost i interesi prema tipu biznisa.
+      4. Tekst reklame pisi na bosanskom/srpskom — NIKADA na engleskom.
+      5. A/B testiranje: uvijek predlozi 2 varijante teksta. Nakon 3 dana — zaustavi losiju.
+      6. Ako CTR padne ispod 1% — predlozi promjenu kreative ili ciljne grupe.
+      7. Mjesecni izvjestaj: ukupan spend, reach, engagement, cijena po kliku, najbolji post.
+      8. Praznici = pojacane kampanje. Predlozi sezonske kampanje 7 dana unaprijed.
+
+      TIPOVI KAMPANJA ZA BALKAN:
+      - Frizeri: "Novi look za novu sezonu" — REACH, zene 18-55, radius 10km
+      - Restorani: "Vikend meni" — ENGAGEMENT, svi 20-60, radius 15km
+      - Boutique: "Nova kolekcija" — TRAFFIC ka webshopu, zene 18-45
+      - Cafe: "Jutarnja kafa uz nas" — REACH, svi 18-40, radius 5km
+
+      FORMAT DRAFT-A:
+      ```
+      KAMPANJA: [naziv]
+      CILJ: [REACH/ENGAGEMENT/TRAFFIC]
+      BUDZET: [EUR/dan]
+      TRAJANJE: [broj dana]
+      CILJNA GRUPA: [opis]
+      TEKST 1: [varijanta A]
+      TEKST 2: [varijanta B]
+      SLIKA: [opis za generisanje]
+      ```
+
+integrations:
+  - name: "Facebook Graph API"
+    type: "social_media"
+    config:
+      api_version: "v19.0"
+      page_token: "{facebook_page_token}"
+      permissions: ["pages_messaging", "pages_read_engagement", "pages_manage_posts", "ads_management"]
+      webhook_events: ["messages", "messaging_postbacks", "feed"]
+
+  - name: "Instagram Graph API"
+    type: "social_media"
+    config:
+      api_version: "v19.0"
+      ig_user_id: "{instagram_user_id}"
+      permissions: ["instagram_basic", "instagram_manage_messages", "instagram_manage_comments"]
+
+  - name: "Viber Business"
+    type: "messaging"
+    config:
+      bsp: "sinch"
+      auth_token: "{viber_auth_token}"
+      sender_name: "{business_name}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/viber"
+
+  - name: "Buffer"
+    type: "scheduling"
+    config:
+      api_url: "https://api.bufferapp.com/1"
+      access_token: "{buffer_access_token}"
+      profiles: "{buffer_profile_ids}"
+
+  - name: "Make (Integromat)"
+    type: "automation"
+    config:
+      base_url: "{make_base}"
+      scenarios:
+        - "meta-ads-create"
+        - "meta-ads-insights"
+        - "meta-ads-pause"
+
+  - name: "n8n"
+    type: "automation"
+    config:
+      base_url: "{n8n_base}"
+      workflows:
+        - "generate-post"
+        - "buffer-schedule"
+        - "optimal-post-time"
+        - "post-analytics"
+        - "trending-topics"
+
+pricing:
+  base_monthly_eur: 39
+  included_agents: 4
+  included_channels: 3
+  per_extra_channel_monthly_eur: 9
+  estimated_token_cost_monthly_eur: 2
+  cloud_budget_limit_usd: 5
+  target_margin_percent: 75
+
+onboarding:
+  required_from_customer:
+    - "Facebook Page URL + Admin-Zugriff"
+    - "Instagram Business Account (optional)"
+    - "Logo + Profilbild (min 400x400px)"
+    - "Cjenovnik / Meni / Katalog (PDF oder Text)"
+    - "Radno vrijeme"
+    - "Adresa + kontakt telefon"
+    - "5-10 najcescih pitanja od klijenata"
+    - "Zeljeni ton komunikacije (formalan / opusten / mladenacki)"
+  setup_duration_minutes: 15
+  auto_deploy: true

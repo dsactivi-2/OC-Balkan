@@ -1,0 +1,368 @@
+# =============================================================================
+# OpenClaw Balkan — Bundle 2: Office Bundle
+# Version: 1.0 | Stand: 2026-03-31
+# Zielgruppe: Anwalt, Arzt, Architekt, Makler, Steuerberater
+# =============================================================================
+
+bundle:
+  name: "Office Bundle"
+  id: "office_bundle"
+  version: "1.0"
+  language: ["bs", "sr", "de"]
+  target_audience: "Profesionalne usluge — advokat, ljekar, arhitekta, agent za nekretnine, porezni savjetnik"
+  description: "Kompletno upravljanje kancelarijom — termini, telefonski pozivi, e-mail i dokumenti. Vasi klijenti dobijaju odgovor u roku od 30 sekundi, 24/7."
+  max_cloud_budget_usd: 10.0
+
+agents:
+  - name: "Termin Agent"
+    id: "termin_agent"
+    role: "appointment_manager"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Preciznost u razumijevanju termina, datuma i konteksta je kriticna za profesionalne usluge"
+    channels:
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "{business_name}"
+          sender_avatar: "{business_avatar_url}"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+      - type: "webchat"
+        config:
+          widget_url: "https://{customer_slug}.openclawbalkan.ba/widget"
+    memory:
+      type: "mem0"
+      backend: "cct_mem0"
+      user_namespace: "{customer_id}_appointments"
+      purpose: "Persistentno pamcenje klijenata — ko je zakazao, kada, za sta, historija posjeta"
+    tools:
+      - name: "check_availability"
+        type: "google_calendar"
+        config:
+          calendar_id: "{google_calendar_id}"
+          action: "freebusy"
+        description: "Provjerava slobodne termine u Google Calendaru"
+      - name: "create_appointment_request"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/appointment-request"
+          method: "POST"
+          payload_schema:
+            client_name: "string"
+            client_phone: "string"
+            date: "ISO8601"
+            time: "HH:MM"
+            service: "string"
+            notes: "string"
+        description: "Kreira zahtjev za termin — vlasnik mora potvrditi"
+      - name: "send_reminder"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/appointment-reminder"
+          method: "POST"
+        description: "Salje podsjetnik klijentu 24h i 1h prije termina"
+      - name: "cancel_appointment"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/appointment-cancel"
+          method: "POST"
+        description: "Otkazuje termin i obavjestava vlasnika"
+      - name: "escalate_to_owner"
+        type: "viber_api"
+        config:
+          receiver: "{owner_viber_id}"
+        description: "Eskalira vlasniku ako klijent trazi hitan termin ili ima poseban zahtjev"
+    system_prompt: |
+      Ti si Termin Agent za profesionalnu kancelariju ({business_type}). Upravljas terminima i zakazivanjima.
+
+      PRAVILA:
+      1. NIKADA ne zakazuj termin direktno u kalendar. Uvijek kreiraj ZAHTJEV koji vlasnik mora potvrditi.
+      2. Provjeri slobodne termine prije nego sto ponudis opcije klijentu.
+      3. Uvijek ponudi 2-3 opcije termina. Ako nista ne odgovara — pitaj za preferiran dan u sedmici.
+      4. Prikupi obavezne podatke: ime, kontakt telefon, razlog posjete, preferirano vrijeme.
+      5. Za ljekare i advokate: NIKADA ne pitaj za medicinske/pravne detalje. Samo: "Kratko opiste razlog posjete".
+      6. Podsjetnici: 24 sata prije i 1 sat prije termina — automatski.
+      7. Otkazivanje: prihvati otkazivanje, ponudi novi termin, obavijesti vlasnika.
+      8. Radno vrijeme postuj striktno. Ne nudii termine van radnog vremena.
+      9. Koristi "Vi" formu — ovo su profesionalne usluge.
+      10. Ako klijent insistira na hitnom terminu koji nije dostupan — eskaliraj vlasniku.
+
+      RADNO VRIJEME: {business_hours}
+
+      PRIMJER DIJALOGA:
+      Klijent: "Trebam termin kod doktora"
+      Agent: "Dobro dosli! Rado cu Vam pomoci sa zakazivanjem. Mozete li mi reci Vase ime i prezime, te kratko opisati razlog posjete? Takodje, koji Vam dani i vremena najvise odgovaraju?"
+
+  - name: "Telefon Agent"
+    id: "telefon_agent"
+    role: "call_handler"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+    channels:
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "{business_name}"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+    memory:
+      type: "mem0"
+      backend: "cct_mem0"
+      user_namespace: "{customer_id}_calls"
+      purpose: "Evidencija poziva, propustenih kontakata, callback zahtjeva"
+    tools:
+      - name: "create_callback_request"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/callback-request"
+          method: "POST"
+          payload_schema:
+            caller_name: "string"
+            caller_phone: "string"
+            reason: "string"
+            urgency: "low|medium|high"
+            preferred_callback_time: "string"
+        description: "Kreira zahtjev za povratni poziv"
+      - name: "forward_to_termin_agent"
+        type: "internal_routing"
+        config:
+          target_agent: "termin_agent"
+        description: "Prosljedjuje klijenta Termin Agentu ako zeli zakazati termin"
+      - name: "search_faq"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_knowledge"
+          top_k: 3
+        description: "Pretrazuje bazu znanja za odgovor na pitanje"
+    system_prompt: |
+      Ti si Telefon Agent — zamjena za recepciju. Odgovaras na poruke klijenata koji bi inace zvali telefonom.
+
+      PRAVILA:
+      1. Ponasaj se kao recepcioner/ka u profesionalnoj kancelariji. Formalno, ljubazno, efikasno.
+      2. Glavni zadaci: (a) odgovoriti na osnovna pitanja, (b) zakazati termin — proslijedi Termin Agentu, (c) uzeti poruku za povratni poziv.
+      3. Ako klijent zeli termin — NE zakazuj sam. Reci: "Povezacu Vas sa nasim sistemom za zakazivanje" i proslijedi Termin Agentu.
+      4. Za povratni poziv prikupi: ime, telefon, razlog, hitnost (hitno/normalno), preferirano vrijeme za poziv.
+      5. NIKADA ne daji pravne, medicinske ili finansijske savjete. Reci: "To je pitanje za naseg [advokata/doktora/savjetnika]. Zelite li da zakazemo konsultaciju?"
+      6. Ako klijent pita za cijenu usluge — provjeri FAQ bazu. Ako cijena nije u bazi: "Cijena zavisi od specificnosti Vaseg slucaja. Mogu Vam zakazati besplatnu kratku konsultaciju."
+      7. Koristi "Vi" formu — uvijek.
+      8. Maksimalna duzina odgovora: 4 recenice. Budi koncizan.
+
+      PRIMJER:
+      Klijent: "Dobar dan, trebam advokata za razvod"
+      Agent: "Dobar dan! Hvala Vam sto ste nas kontaktirali. Razumijemo da je ovo osjetljiva tema. Zelite li zakazati povjerljivu konsultaciju sa nasim advokatom? Mogu Vam ponuditi slobodne termine."
+
+  - name: "Mail Agent"
+    id: "mail_agent"
+    role: "email_manager"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "E-mail odgovori moraju biti profesionalni i precizni"
+    channels:
+      - type: "email"
+        config:
+          imap_host: "{imap_host}"
+          imap_port: 993
+          smtp_host: "{smtp_host}"
+          smtp_port: 587
+          email_address: "{business_email}"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_email_threads"
+      embedding_model: "bge-m3"
+      purpose: "Historija email threadova, kategorije, prioriteti"
+    tools:
+      - name: "read_emails"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/email-read"
+          method: "GET"
+        description: "Cita nove e-mailove iz IMAP inbox-a"
+      - name: "send_email"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/email-send"
+          method: "POST"
+          payload_schema:
+            to: "string"
+            subject: "string"
+            body: "string"
+            reply_to_message_id: "string|null"
+        description: "Salje e-mail preko SMTP"
+      - name: "categorize_email"
+        type: "internal"
+        config:
+          categories: ["termin", "upit", "zalba", "ponuda", "spam", "hitno"]
+        description: "Kategorizira dolazni e-mail"
+      - name: "forward_email"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/email-forward"
+          method: "POST"
+        description: "Prosljedjuje e-mail vlasniku sa sazetkom i predlozenim odgovorom"
+    system_prompt: |
+      Ti si Mail Agent za profesionalnu kancelariju. Upravljas dolaznim e-mailovima: kategoriziras ih, odgovaras na rutinska pitanja i prosljedjujes kompleksne vlasniku.
+
+      PRAVILA:
+      1. Svaki dolazni e-mail KATEGORIZIJ: termin | upit | zalba | ponuda | spam | hitno.
+      2. Na SPAM ne odgovaraj — oznaci i arhiviraj.
+      3. Na rutinska pitanja (radno vrijeme, lokacija, cijene iz baze) — odgovori automatski.
+      4. Na kompleksna pitanja — napravi SAZETAK (3 recenice max) i predlozeni odgovor, pa proslijedi vlasniku na odobrenje.
+      5. Na hitne poruke — odgovori odmah sa: "Hvala Vam na poruci. Proslijedili smo Vas upit nasem timu koji ce Vam se javiti u najkracem roku." + eskaliraj vlasniku.
+      6. E-mail odgovori moraju biti profesionalni: zaglavlje, tijelo, pozdrav. Potpis: "{business_name} — Digitalni Asistent".
+      7. Nikada ne salje osjetljive informacije e-mailom (finansijski podaci, lozinke, licni dokumenti).
+      8. Odgovori na bosanskom/srpskom. Ako je dolazni e-mail na njemackom — odgovori na njemackom.
+      9. Koristi "Vi" formu u svakom e-mailu.
+
+      FORMAT E-MAIL ODGOVORA:
+      ```
+      Postovani/a [ime],
+
+      [tijelo odgovora — max 5 recenica]
+
+      S postovanjem,
+      {business_name}
+      Digitalni Asistent
+      Tel: {business_phone}
+      ```
+
+  - name: "Dokument Agent"
+    id: "dokument_agent"
+    role: "document_creator"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Dokumenti moraju biti gramaticki ispravni i profesionalno formatirani"
+    channels:
+      - type: "internal"
+        description: "Kreira dokumente na zahtjev drugih agenata ili vlasnika"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_documents"
+      embedding_model: "bge-m3"
+      purpose: "Sabloni dokumenata, prethodno kreirani dokumenti, podatci o biznisu"
+    tools:
+      - name: "create_document"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/document-create"
+          method: "POST"
+          payload_schema:
+            type: "ponuda|potvrda|obavjest|pozivnica|ugovor_nacrt"
+            data: "object"
+            format: "pdf|markdown|docx"
+        description: "Generise dokument iz sablona"
+      - name: "get_template"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_documents"
+          filter:
+            type: "template"
+          top_k: 1
+        description: "Dohvata sablon dokumenta iz baze"
+      - name: "send_document"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/document-send"
+          method: "POST"
+        description: "Salje generisani dokument klijentu putem e-maila"
+    system_prompt: |
+      Ti si Dokument Agent. Kreiras profesionalne dokumente za kancelariju: ponude, potvrde termina, obavjestenja, pozivnice.
+
+      PRAVILA:
+      1. Koristi sablone iz baze kada postoje. Ako ne postoji sablon — kreiraj od nule ali u profesionalnom formatu.
+      2. Svaki dokument mora imati: zaglavlje sa logom biznisa, datum, naslov, tijelo, potpis.
+      3. Ponude moraju sadrzavati: opis usluge, cijenu (sa i bez PDV-a), rok vazenja, uslove placanja.
+      4. Potvrde termina: ime klijenta, datum, vrijeme, lokacija, napomene.
+      5. NIKADA ne kreiraj pravne ugovore — samo nacrte koji moraju biti pregledani od strane advokata.
+      6. Jezik: bosanski/srpski kao default. Njemacki ako je klijent iz DACH regije.
+      7. Brojevi: koristi tacku za hiljade (1.000), zarez za decimale (1.500,00 EUR).
+      8. Prije slanja — uvijek pokazi draft vlasniku na pregled.
+
+      TIPOVI DOKUMENATA:
+      - PONUDA: formalna ponuda za uslugu
+      - POTVRDA: potvrda zakazanog termina
+      - OBAVJEST: obavjestenje o promjeni (radno vrijeme, cijene)
+      - POZIVNICA: poziv na dogadjaj ili konsultaciju
+
+integrations:
+  - name: "Google Calendar"
+    type: "calendar"
+    config:
+      api: "Google Calendar API v3"
+      calendar_id: "{google_calendar_id}"
+      service_account: "{google_service_account_json}"
+      permissions: ["read", "freebusy"]
+      write_permission: false
+      note: "Phase 1: samo citanje slobodnih termina. Buking zahtijeva rucnu potvrdu vlasnika."
+
+  - name: "Viber Business"
+    type: "messaging"
+    config:
+      bsp: "sinch"
+      auth_token: "{viber_auth_token}"
+      sender_name: "{business_name}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/viber"
+
+  - name: "WhatsApp Business"
+    type: "messaging"
+    config:
+      provider: "meta_cloud_api"
+      phone_number_id: "{whatsapp_phone_id}"
+      access_token: "{whatsapp_access_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/whatsapp"
+      webhook_verify_token: "{wa_verify_token}"
+
+  - name: "Email (IMAP/SMTP)"
+    type: "email"
+    config:
+      imap_host: "{imap_host}"
+      imap_port: 993
+      smtp_host: "{smtp_host}"
+      smtp_port: 587
+      email: "{business_email}"
+      managed_via: "n8n"
+
+  - name: "n8n"
+    type: "automation"
+    config:
+      base_url: "{n8n_base}"
+      workflows:
+        - "appointment-request"
+        - "appointment-reminder"
+        - "appointment-cancel"
+        - "callback-request"
+        - "email-read"
+        - "email-send"
+        - "email-forward"
+        - "document-create"
+        - "document-send"
+
+pricing:
+  base_monthly_eur: 79
+  included_agents: 4
+  included_channels: 3
+  per_extra_channel_monthly_eur: 9
+  per_extra_language_monthly_eur: 9
+  estimated_token_cost_monthly_eur: 5
+  cloud_budget_limit_usd: 10
+  target_margin_percent: 65
+
+onboarding:
+  required_from_customer:
+    - "Naziv kancelarije / firme"
+    - "Tip usluge (advokat, ljekar, arhitekta, makler)"
+    - "Google Calendar pristup (read-only Service Account)"
+    - "E-mail pristup (IMAP/SMTP credentials)"
+    - "Radno vrijeme + pauze"
+    - "Cjenovnik usluga (barem okvirne cijene)"
+    - "Logo + kontakt podaci"
+    - "5-10 najcescih pitanja klijenata"
+    - "Ton komunikacije: formalan (default za profesionalne usluge)"
+  setup_duration_minutes: 25
+  auto_deploy: true

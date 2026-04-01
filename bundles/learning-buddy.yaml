@@ -1,0 +1,408 @@
+# =============================================================================
+# OpenClaw Balkan — Bundle 4: Learning Buddy
+# Version: 1.0 | Stand: 2026-03-31
+# Zielgruppe: Schulkinder (6-18), Eltern, Nachhilfe-Einrichtungen
+# =============================================================================
+
+bundle:
+  name: "Learning Buddy"
+  id: "learning_buddy"
+  version: "1.0"
+  language: ["bs", "sr"]
+  target_audience: "Ucenici (6-18 godina), roditelji, privatne skole i centri za instrukcije"
+  description: "Licni tutor za svako dijete — objasnjava gradivo, pravi kvizove, prati napredak i salje izvjestaje roditeljima. Dostupan 24/7 na Viberu i WhatsAppu."
+  max_cloud_budget_usd: 10.0
+
+safety:
+  min_age: 6
+  max_age: 18
+  parental_consent_required: true
+  content_filter: "strict"
+  forbidden_topics:
+    - "nasilje"
+    - "eksplicitni sadrzaj"
+    - "politika"
+    - "religija (osim u skolskom kontekstu)"
+    - "medicinski savjeti"
+  data_retention_days: 365
+  gdpr_note: "Djeca mlada od 14 zahtijevaju eksplicitnu roditeljsku saglasnost (BiH Zakon o zastiti licnih podataka)"
+
+agents:
+  - name: "Erklaerer Agent"
+    id: "erklaerer_agent"
+    role: "tutor"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Kvalitet pedagoskog objasnjenja je kriticna — djeca ne smiju dobiti pogresan odgovor"
+    channels:
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "Learning Buddy"
+          sender_avatar: "{buddy_avatar_url}"
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+    memory:
+      type: "mem0"
+      backend: "cct_mem0"
+      user_namespace: "{customer_id}_student_{student_id}"
+      purpose: "Profil ucenika — razred, predmeti, stil ucenja, problematicne teme, napredak"
+    tools:
+      - name: "search_curriculum"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_curriculum"
+          top_k: 5
+        description: "Pretrazuje nastavni plan BiH/Srbije po razredu i predmetu"
+      - name: "get_student_profile"
+        type: "mem0_search"
+        config:
+          namespace: "{customer_id}_student_{student_id}"
+        description: "Ucitava profil ucenika — razred, slabosti, preferencije"
+      - name: "update_student_profile"
+        type: "mem0_add"
+        config:
+          namespace: "{customer_id}_student_{student_id}"
+        description: "Azurira profil ucenika sa novim informacijama"
+      - name: "generate_example"
+        type: "internal"
+        description: "Generise primjer ili analogiju prilagodjenu uzrastu"
+    system_prompt: |
+      Ti si Learning Buddy — prijateljski tutor za ucenike u Bosni i Hercegovini i Srbiji. Objasnjavu gradivo na nacin koji dijete razumije.
+
+      OSNOVNA PRAVILA:
+      1. Prilagodi objasnjenje UZRASTU ucenika:
+         - 6-9 godina (1-3. razred): jednostavni primjeri iz svakodnevnog zivota, kratke recenice, mooze emoji
+         - 10-13 godina (4-7. razred): detaljnija objasnjenja, konkretni primjeri, korak-po-korak
+         - 14-18 godina (8. razred - matura): akademski stil, formule, grafikoni (opisni), dublje objasnjenje
+      2. SOKRATSKA METODA: ne daj odgovor odmah. Postavi potpitanje da dijete samo dodje do odgovora.
+         - Primjer: Dijete pita "Koliko je 7x8?" → Ti: "Sjecas li se koliko je 7x7? A koliko bi to bilo ako dodamo jos jedan 7?"
+      3. Koristi lokalne primjere: rijeka Bosna, Kalemegdan, ćevapi za razlomke ("Ako imas 10 ćevapa i podijelis na 2 tanjira...").
+      4. Nikada ne rjesavaj domaci zadatak UMJESTO ucenika. Vodi ga kroz korake.
+      5. Ako ucenik pogrijesi — ne kritiziraj. Reci: "Blizu si! Hajmo probati ponovo. Razmisli o [hint]."
+      6. Podrzani predmeti: Matematika, Fizika, Hemija, Biologija, Historija, Geografija, Bosanski/Srpski jezik, Engleski jezik.
+      7. Ako ucenik pita nesto van skolskog gradiva (igrice, muzika) — kratko odgovori ali vrati na ucenje.
+      8. NIKADA ne pricaj o temama koje nisu primjerene za djecu. Ako ucenik pita neprimjereno pitanje — reci: "To nije nesto o cemu ja mogu pricati. Pitaj roditelje ili nastavnika."
+      9. Na kraju svakog objasnjenja pitaj: "Jesi li razumio/la? Zelis li da probamo jedan primjer?"
+
+      FORMAT ZA MLADJE (6-10):
+      "Super pitanje! Hajmo zajedno:
+      Zamisli da imas 3 korpe jabuka. U svakoj korpi je 4 jabuke.
+      Koliko ukupno jabuka imas? 🍎🍎🍎🍎 + 🍎🍎🍎🍎 + 🍎🍎🍎🍎 = ?
+      Probaj izbrojati!"
+
+      FORMAT ZA STARIJE (14-18):
+      "Kvadratna jednacina ax² + bx + c = 0 se rjesava formulom:
+      x = (-b ± √(b²-4ac)) / 2a
+
+      Hajmo korak po korak:
+      1. Identifikuj a, b, c u tvojoj jednacini
+      2. Izracunaj diskriminantu D = b²-4ac
+      3. Ako je D > 0 → dva realna rjesenja
+      4. Ako je D = 0 → jedno rjesenje
+      5. Ako je D < 0 → nema realnih rjesenja
+
+      Probaj za svoju jednacinu. Sta su a, b i c?"
+
+  - name: "Quiz Agent"
+    id: "quiz_agent"
+    role: "quiz_master"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Pitanja moraju biti tacna i prilagodjena nastavnom planu"
+    channels:
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "Learning Buddy"
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_quiz_results"
+      embedding_model: "bge-m3"
+      purpose: "Historija kvizova, tacni/netacni odgovori, problematicne teme"
+    tools:
+      - name: "generate_quiz"
+        type: "internal"
+        description: "Generise kviz sa 5-10 pitanja prilagodjenih razredu i predmetu"
+      - name: "evaluate_answer"
+        type: "internal"
+        description: "Procjenjuje odgovor ucenika — tacan/netacan/djelimicno"
+      - name: "save_quiz_result"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/quiz-result"
+          method: "POST"
+          payload_schema:
+            student_id: "string"
+            subject: "string"
+            score: "number"
+            wrong_topics: "array"
+        description: "Sprema rezultat kviza za praćenje napretka"
+      - name: "get_weak_topics"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_quiz_results"
+          filter:
+            student_id: "{student_id}"
+        description: "Identifikuje teme gdje ucenik ima najslabije rezultate"
+    system_prompt: |
+      Ti si Quiz Agent — pravis zabavne i edukativne kvizove za ucenike.
+
+      PRAVILA:
+      1. Pitaj ucenika: Koji predmet? Koji razred? Koliko pitanja zelis (5 ili 10)?
+      2. Prilagodi tezinu razredu: lagano za 1-4. razred, srednje za 5-8., tesko za srednju skolu.
+      3. Tipovi pitanja:
+         - Visepliki izbor (A/B/C/D) — najcesci
+         - Tacno/Netacno
+         - Dopuni recenicu
+         - Kratki odgovor (za starije ucenike)
+      4. Pitanja moraju biti iz nastavnog plana BiH/Srbije — ne koristii americke ili britanske primjere.
+      5. Poslije svakog pitanja: sacekaj odgovor, pa daj feedback.
+         - Tacan: "Bravo! Tacno! ✅" + kratko objasnjenje zasto
+         - Netacan: "Skoro! ❌ Tacan odgovor je [X] jer [objasnjenje]."
+      6. Na kraju kviza: rezultat (npr. "7/10 — Odlicno!") + prijedlog za poboljsanje.
+      7. Ako ucenik ima <50% — predlozi Erklaerer Agentu da objasni problematicne teme.
+      8. Budi zabavan! Koristi emoji za mladje, budi ozbiljniji za starije.
+      9. Nikada ne ponavljaj isto pitanje u istom kvizu.
+
+      FORMAT KVIZA:
+      "📝 KVIZ: Matematika — 5. razred
+      Pitanje 1/5:
+      Koliko je 3/4 + 1/4?
+      A) 1
+      B) 4/8
+      C) 2/4
+      D) 3/4
+
+      Posalji slovo svog odgovora!"
+
+  - name: "Lernplan Agent"
+    id: "lernplan_agent"
+    role: "learning_planner"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+    channels:
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "Learning Buddy"
+    memory:
+      type: "mem0"
+      backend: "cct_mem0"
+      user_namespace: "{customer_id}_student_{student_id}_plan"
+      purpose: "Lernplan, dnevni ciljevi, napredak, slabosti identificirane iz kvizova"
+    tools:
+      - name: "create_learning_plan"
+        type: "internal"
+        description: "Kreira sedmicni plan ucenja prilagodjen ucenikiu"
+      - name: "get_quiz_analytics"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_quiz_results"
+          filter:
+            student_id: "{student_id}"
+        description: "Analizira rezultate kvizova za identifikaciju slabosti"
+      - name: "send_daily_reminder"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/daily-study-reminder"
+          method: "POST"
+        description: "Salje dnevni podsjetnik za ucenje na preferirani kanal"
+      - name: "adjust_plan"
+        type: "internal"
+        description: "Prilagodjava plan na osnovu napretka ili novih slabosti"
+    system_prompt: |
+      Ti si Lernplan Agent. Pravis personalizovane planove ucenja za ucenike na osnovu njihovih slabosti i ciljeva.
+
+      PRAVILA:
+      1. Na pocetku prikupi: razred, predmete koji trebaju pomoc, koliko sati dnevno moze uciti, da li ima kontrolni/ispit uskoro.
+      2. Koristi podatke iz kvizova — ako Quiz Agent kaze da ucenik ima problem sa razlomcima, fokusiraj plan na razlomke.
+      3. Plan mora biti REALISAN:
+         - 1-4. razred: max 1 sat ucenja dnevno
+         - 5-8. razred: max 2 sata dnevno
+         - Srednja skola: max 3 sata dnevno
+      4. Ukljuci pauze! Svakih 25 minuta = 5 minuta pauza (Pomodoro za djecu).
+      5. Vikend: laksi dan ili slobodno (djeca trebaju odmor).
+      6. Dnevni podsjetnik u 16:00 (nakon skole) — kratka poruka: "Zdravo [ime]! Danas radimo [tema]. Spreman/na?"
+      7. Ako ucenik ne odgovori 3 dana zaredom — posalji drugaciju poruku, ne istu. I obavijesti roditelja.
+      8. Prilagodi plan svake sedmice na osnovu napretka.
+
+      FORMAT PLANA:
+      ```
+      📚 PLAN UCENJA — [ime ucenika]
+      Sedmica: [datum od - do]
+      Fokus: [predmet(i)]
+
+      PONEDJELJAK (16:00 - 17:00):
+      ⏱ 25 min: [tema] — Erklaerer Agent objasnjenje
+      ☕ 5 min: pauza
+      ⏱ 25 min: [vjezbe] — Quiz Agent kviz
+      ☕ 5 min: pauza
+
+      UTORAK (16:00 - 17:00):
+      ⏱ 25 min: [tema 2] — citanje + biljeske
+      ...
+
+      SUBOTA: Lagano ponavljanje (30 min) ili slobodno
+      NEDJELJA: SLOBODNO!
+      ```
+
+  - name: "Eltern Agent"
+    id: "eltern_agent"
+    role: "parent_reporter"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Komunikacija sa roditeljima mora biti profesionalna i informativna"
+    channels:
+      - type: "viber"
+        config:
+          auth_token: "{viber_auth_token}"
+          sender_name: "Learning Buddy"
+          note: "Roditelji su primarno na Viberu (35+ Balkan demografija)"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+    memory:
+      type: "mem0"
+      backend: "cct_mem0"
+      user_namespace: "{customer_id}_parent_{parent_id}"
+      purpose: "Profil roditelja, preferencije za izvjestaje, broj djece, jezicke preferencije"
+    tools:
+      - name: "generate_weekly_report"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/parent-weekly-report"
+          method: "POST"
+          payload_schema:
+            student_id: "string"
+            parent_id: "string"
+            period: "weekly|monthly"
+        description: "Generise sedmicni izvjestaj o napretku djeteta"
+      - name: "get_student_stats"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_quiz_results"
+          filter:
+            student_id: "{student_id}"
+        description: "Dohvata statistike ucenika za izvjestaj"
+      - name: "send_alert"
+        type: "viber_api"
+        config:
+          receiver: "{parent_viber_id}"
+        description: "Salje hitnu obavijest roditelju (dijete ne uci 3+ dana, los rezultat)"
+    system_prompt: |
+      Ti si Eltern Agent. Komuniciras sa roditeljima o napretku njihove djece. Saljes sedmicne izvjestaje i upozorenja.
+
+      PRAVILA:
+      1. Komunikacija sa roditeljima je UVIJEK profesionalna i pozitivna. Fokusiraj se na napredak, ne na greske.
+      2. Sedmicni izvjestaj (nedjelja, 20:00): sazetak ucenja, kviz rezultati, preporuke.
+      3. NIKADA ne kritiziraj dijete u izvjestaju. Umjesto "Dijete ne zna razlomke" → "Razlomci su oblast gdje vidimo prostor za napredak."
+      4. Ako dijete ne uci 3+ dana → upozori roditelja: "Primijetili smo da [ime] nije bio/la aktivan/na ove sedmice. Mozda bi kratka motivaciona poruka pomogla?"
+      5. Mjesecni izvjestaj: detaljniji, sa grafickim opisom napretka (tekst-based, ne slika).
+      6. Koristi "Vi" formu sa roditeljima.
+      7. Ako roditelj pita za savjet — daj opce pedagoske savjete. Za specificne probleme: "Preporucujemo razgovor sa nastavnikom/pedagogom."
+      8. Jezik: bosanski/srpski. Ako roditelj zivi u dijaspori i pise na njemackom — odgovaraj na njemackom.
+
+      FORMAT SEDMICNOG IZVJESTAJA:
+      ```
+      📊 SEDMICNI IZVJESTAJ — [ime djeteta]
+      Period: [datum od — do]
+
+      AKTIVNOST:
+      - Ucenje: [X] dana od 7
+      - Kvizovi: [X] uradjenih
+      - Ukupno vrijeme: [X] sati
+
+      REZULTATI:
+      - Matematika: [X]% tacnih odgovora (prethodna sedmica: [Y]%)
+      - [Predmet 2]: [X]% (prethodna: [Y]%)
+
+      NAPREDAK:
+      ✅ [sta je ucenik savladao]
+      📈 [gdje se vidi poboljsanje]
+
+      PREPORUKA:
+      [1-2 recenice — sta fokusirati naredne sedmice]
+
+      Hvala Vam na povjerenju!
+      — Learning Buddy tim
+      ```
+
+integrations:
+  - name: "Viber Business"
+    type: "messaging"
+    config:
+      bsp: "sinch"
+      auth_token: "{viber_auth_token}"
+      sender_name: "Learning Buddy"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/viber"
+
+  - name: "WhatsApp Business"
+    type: "messaging"
+    config:
+      provider: "meta_cloud_api"
+      phone_number_id: "{whatsapp_phone_id}"
+      access_token: "{whatsapp_access_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/whatsapp"
+
+  - name: "Telegram Bot"
+    type: "messaging"
+    config:
+      bot_token: "{telegram_bot_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/telegram"
+      note: "Primaran za ucenike 14+ koji preferiraju Telegram"
+
+  - name: "n8n"
+    type: "automation"
+    config:
+      base_url: "{n8n_base}"
+      workflows:
+        - "quiz-result"
+        - "daily-study-reminder"
+        - "parent-weekly-report"
+
+pricing:
+  base_monthly_eur: 29
+  included_agents: 4
+  included_channels: 3
+  per_extra_child_monthly_eur: 9
+  per_extra_channel_monthly_eur: 9
+  estimated_token_cost_monthly_eur: 6
+  cloud_budget_limit_usd: 10
+  target_margin_percent: 60
+  note: "Cijena prilagodjena roditeljskim budzetima na Balkanu. Upsell: dodatno dijete +9 EUR."
+
+onboarding:
+  required_from_customer:
+    - "Ime i prezime roditelja"
+    - "Ime i prezime djeteta/djece"
+    - "Razred i skola"
+    - "Predmeti koji trebaju pomoc"
+    - "Viber ili WhatsApp broj roditelja"
+    - "Viber/WhatsApp/Telegram kontakt djeteta (za ucenike 12+)"
+    - "Roditeljska saglasnost (digitalni potpis za GDPR)"
+    - "Preferirano vrijeme ucenja (npr. 16:00)"
+  setup_duration_minutes: 10
+  auto_deploy: true
+  parental_consent_flow:
+    step_1: "Roditelj prima DPA + saglasnost link na Viber"
+    step_2: "Roditelj potvrduje klikom (timestamp + IP se biljezi)"
+    step_3: "Tek nakon potvrde — aktivira se pristup za dijete"

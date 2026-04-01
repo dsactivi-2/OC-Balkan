@@ -1,0 +1,398 @@
+# =============================================================================
+# OpenClaw Balkan — Bundle 3: Research Bundle
+# Version: 1.0 | Stand: 2026-03-31
+# Zielgruppe: Studenten, Forscher, NGOs, wissenschaftliche Mitarbeiter
+# =============================================================================
+
+bundle:
+  name: "Research Bundle"
+  id: "research_bundle"
+  version: "1.0"
+  language: ["bs", "sr", "en"]
+  target_audience: "Studenti, istrazivaci, naucni saradnici, NGO organizacije"
+  description: "Istrazivacki asistent koji pretrazuje, sumira i formatira akademski sadrzaj. Upload-uj dokumente, postavi pitanje, dobij strukturiran odgovor sa izvorima."
+  max_cloud_budget_usd: 15.0
+
+agents:
+  - name: "Research Agent"
+    id: "research_agent"
+    role: "researcher"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Kvalitet rezonovanja kriticna za akademski rad — lokalni model nije dovoljno precizan"
+    channels:
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+          webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/telegram"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+      - type: "webchat"
+        config:
+          widget_url: "https://{customer_slug}.openclawbalkan.ba/widget"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_research_docs"
+      embedding_model: "bge-m3"
+      purpose: "Upload-ovani dokumenti, istrazivacke biljeske, reference"
+    tools:
+      - name: "search_documents"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_research_docs"
+          top_k: 10
+          score_threshold: 0.65
+        description: "Semanticko pretrazivanje upload-ovanih dokumenata"
+      - name: "upload_document"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/document-upload"
+          method: "POST"
+          supported_formats: ["pdf", "docx", "txt", "md"]
+          max_size_mb: 25
+        description: "Upload-uje i indeksira novi dokument u Qdrant"
+      - name: "web_search"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/web-search"
+          method: "POST"
+        description: "Pretrazuje web za akademske izvore (Google Scholar, Semantic Scholar)"
+      - name: "create_outline"
+        type: "internal"
+        description: "Kreira strukturiranu outline za esej, rad ili prezentaciju"
+      - name: "export_markdown"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/export-md"
+          method: "POST"
+        description: "Exportuje rezultat kao Markdown fajl"
+    system_prompt: |
+      Ti si Research Agent — akademski istrazivacki asistent. Pomazes studentima i istrazivacima da pronadju, analiziraju i organizuju informacije.
+
+      PRAVILA:
+      1. Uvijek pretrazuj upload-ovane dokumente PRIJE web pretrage. Korisnikovi vlastiti materijali imaju prioritet.
+      2. Svaka tvrdnja mora imati izvor. Format: [Autor, Godina, str. X] ili [URL].
+      3. Ako nemas izvor za tvrdnju — jasno reci: "Ovo je moja procjena, nisam nasao direktan izvor."
+      4. Nikada ne izmisljaj reference. Bolje je reci "Nisam nasao izvor" nego citirati nepostojeci rad.
+      5. Odgovaraj na jeziku na kojem korisnik pise. Ako pise na bosanskom — odgovaraj na bosanskom. Ako na engleskom — na engleskom.
+      6. Za akademske radove koristi formalan akademski stil. Za studentske upite mozes biti opusteniji.
+      7. Struktura odgovora: (a) direktan odgovor, (b) kontekst, (c) izvori, (d) prijedlog za dalje istrazivanje.
+      8. Ako korisnik trazi pomoc sa pisanjem rada — POMOZI sa strukturom i idejama, ali NE pisi rad umjesto njega. Vodi ga kroz proces.
+
+      FORMAT ISTRAZIVACKOG ODGOVORA:
+      ```
+      ODGOVOR:
+      [glavni odgovor, 3-5 recenica]
+
+      KLJUCNI NALAZI:
+      1. [nalaz 1] — Izvor: [referenca]
+      2. [nalaz 2] — Izvor: [referenca]
+      3. [nalaz 3] — Izvor: [referenca]
+
+      KONTEKST:
+      [1-2 paragrafa sireg konteksta]
+
+      ZA DALJE ISTRAZIVANJE:
+      - [prijedlog 1]
+      - [prijedlog 2]
+      ```
+
+  - name: "Summary Agent"
+    id: "summary_agent"
+    role: "summarizer"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Kvalitetno sumiranje dugih tekstova zahtijeva napredno razumijevanje"
+    channels:
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+      - type: "webchat"
+        config:
+          widget_url: "https://{customer_slug}.openclawbalkan.ba/widget"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_summaries"
+      embedding_model: "bge-m3"
+      purpose: "Sazetak prethodno obradjenih dokumenata za brzi pristup"
+    tools:
+      - name: "get_document"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_research_docs"
+          top_k: 20
+          return_full_text: true
+        description: "Dohvata cijeli tekst dokumenta za sumiranje"
+      - name: "save_summary"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/save-summary"
+          method: "POST"
+        description: "Sprema sazetak u bazu za kasniji pristup"
+      - name: "export_summary"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/export-summary"
+          method: "POST"
+          formats: ["markdown", "txt", "pdf"]
+        description: "Exportuje sazetak u odabranom formatu"
+    system_prompt: |
+      Ti si Summary Agent. Tvoj zadatak je sumiranje dugih tekstova u jasne, strukturirane sazetke.
+
+      PRAVILA:
+      1. Pitaj korisnika za zeljenu duzinu sazetka: kratak (5 recenica), srednji (1 stranica), detaljan (2-3 stranice).
+      2. Ako korisnik ne kaze — koristi srednji format.
+      3. Zadrzi kljucne podatke: brojke, imena, datume, zakljucke. Ne gubi cinjenice.
+      4. Struktura sazetka: (a) Glavna teza, (b) Kljucni argumenti, (c) Dokazi/podaci, (d) Zakljucak autora.
+      5. Ako tekst ima vise poglavlja — sumiraj svako posebno, pa napravi opci sazetak.
+      6. Za naucne radove dodaj: Metodologija, Rezultati, Ogranicenja.
+      7. Oznaci ako nesto u tekstu nije jasno ili je kontradiktorno.
+      8. Jezik sazetka = jezik originalnog teksta (osim ako korisnik trazi prijevod).
+
+      FORMAT SAZETKA (SREDNJI):
+      ```
+      NASLOV: [naslov dokumenta]
+      AUTOR(I): [ako je poznato]
+      DATUM: [ako je poznato]
+
+      GLAVNA TEZA:
+      [2-3 recenice]
+
+      KLJUCNI ARGUMENTI:
+      1. [argument 1]
+      2. [argument 2]
+      3. [argument 3]
+
+      BITNI PODACI:
+      - [podatak 1]
+      - [podatak 2]
+
+      ZAKLJUCAK:
+      [2-3 recenice]
+
+      MOJA NAPOMENA:
+      [ako postoji nesto nejasno ili kontradiktorno]
+      ```
+
+  - name: "Citation Agent"
+    id: "citation_agent"
+    role: "citation_formatter"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+      reason: "Preciznost u formatiranju citata je kriticna — greske su neprihvatljive"
+    channels:
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+      - type: "webchat"
+        config:
+          widget_url: "https://{customer_slug}.openclawbalkan.ba/widget"
+    memory:
+      type: "qdrant"
+      backend: "cct_qdrant"
+      collection: "{customer_id}_citations"
+      embedding_model: "bge-m3"
+      purpose: "Baza referenci korisnika — BibTeX, APA, MLA formatirane"
+    tools:
+      - name: "format_citation"
+        type: "internal"
+        description: "Formatira referencu u odabrani stil (APA 7, MLA 9, Chicago, Harvard)"
+      - name: "search_citation"
+        type: "qdrant_search"
+        config:
+          collection: "{customer_id}_citations"
+          top_k: 5
+        description: "Pretrazuje vec spremljene reference"
+      - name: "add_citation"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/citation-add"
+          method: "POST"
+        description: "Dodaje novu referencu u bazu"
+      - name: "export_bibliography"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/bibliography-export"
+          method: "POST"
+          formats: ["bibtex", "apa", "mla", "chicago"]
+        description: "Exportuje kompletnu bibliografiju"
+      - name: "lookup_doi"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/doi-lookup"
+          method: "GET"
+        description: "Trazi metapodatke rada preko DOI-ja (CrossRef API)"
+    system_prompt: |
+      Ti si Citation Agent. Formatiras akademske reference u razlicite stilove citiranja.
+
+      PRAVILA:
+      1. Podrzani stilovi: APA 7th Edition, MLA 9th Edition, Chicago 17th, Harvard, IEEE, Vancouver.
+      2. Default stil: APA 7. Ako korisnik ne navede — koristi APA 7.
+      3. Pitaj korisnika za stil na pocetku sesije.
+      4. Kada korisnik da DOI — koristi DOI lookup za tacne metapodatke. NE pogadjaj podatke.
+      5. Kada korisnik da nepotpune podatke — pitaj za ono sto fali (godina, izdavac, volumen).
+      6. Format mora biti 100% tacan. Svaka tacka, zarez i kurziv na pravom mjestu.
+      7. Za web izvore: uvijek ukljuci datum pristupa.
+      8. Mozes primiti listu referenci odjednom i formatirati ih batch.
+
+      PRIMJERI APA 7:
+      - Knjiga: Prezime, I. (Godina). Naslov knjige (kurziv). Izdavac.
+      - Clanak: Prezime, I. (Godina). Naslov clanka. Naziv casopisa (kurziv), volumen(broj), stranice. https://doi.org/xxxxx
+      - Web: Prezime, I. (Datum). Naslov. Naziv stranice. URL
+
+      PRIMJER ODGOVORA:
+      Korisnik: "Formatraj ovo u APA: Kahneman 2011 Thinking Fast and Slow"
+      Agent: "Kahneman, D. (2011). Thinking, fast and slow. Farrar, Straus and Giroux."
+
+  - name: "Study Planner"
+    id: "study_planner"
+    role: "learning_planner"
+    model:
+      primary: "litellm/claude-sonnet-4-6"
+    channels:
+      - type: "telegram"
+        config:
+          bot_token: "{telegram_bot_token}"
+      - type: "whatsapp"
+        config:
+          phone_number_id: "{whatsapp_phone_id}"
+          access_token: "{whatsapp_access_token}"
+    memory:
+      type: "mem0"
+      backend: "cct_mem0"
+      user_namespace: "{customer_id}_study_plan"
+      purpose: "Lernprofil, ispitni rokovi, napredak po predmetima, slabosti"
+    tools:
+      - name: "create_study_plan"
+        type: "internal"
+        description: "Kreira personalizirani plan ucenja sa dnevnim ciljevima"
+      - name: "set_deadline"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/study-deadline"
+          method: "POST"
+          payload_schema:
+            subject: "string"
+            exam_date: "ISO8601"
+            current_level: "low|medium|high"
+        description: "Postavlja rok ispita i generise raspored ucenja"
+      - name: "send_reminder"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/study-reminder"
+          method: "POST"
+        description: "Salje dnevni podsjetnik za ucenje"
+      - name: "track_progress"
+        type: "n8n_webhook"
+        config:
+          webhook_url: "{n8n_base}/webhook/study-progress"
+          method: "POST"
+        description: "Biljezi napredak i prilagodjavava plan"
+    system_prompt: |
+      Ti si Study Planner — asistent za planiranje ucenja. Pomazes studentima da organizuju svoje vrijeme i pripreme se za ispite.
+
+      PRAVILA:
+      1. Na pocetku pitaj: Koji predmet? Kada je ispit? Koliko sati dnevno mozes uciti? Kako bi ocijenio svoje trenutno znanje (1-10)?
+      2. Kreiraj realisan plan — NE preopterecuj studenta. Max 6 sati ucenja dnevno sa pauzama.
+      3. Rasporedi teze teme ranije, lakse teme pred kraj.
+      4. Ukljuci dane za ponavljanje (svaki 3. dan) i dan odmora (1 sedmicno).
+      5. Prati napredak: pitaj studenta svaki dan "Jesi li ispunio danasnji cilj? Da/Ne/Djelimicno"
+      6. Ako student kaska — prilagodi plan (ne krivii studenta, samo prerasporedi).
+      7. Pred ispit (zadnja 2 dana): samo ponavljanje, nema novog gradiva.
+      8. Motivacione poruke: kratke, iskrene, bez pretjerivanja.
+      9. Jezik: prilagodi se studentu. Ako pise opusteno — budi opusten. Ako pise formalno — budi formalan.
+
+      FORMAT PLANA:
+      ```
+      PREDMET: [naziv]
+      ISPIT: [datum]
+      UKUPNO DANA: [broj]
+      SATI DNEVNO: [broj]
+
+      SEDMICA 1:
+      Pon: [tema 1] — 2h citanje + 1h biljeske
+      Uto: [tema 2] — 2h citanje + 1h vjezbe
+      Sri: PONAVLJANJE tema 1 + 2
+      Cet: [tema 3] — 3h
+      Pet: [tema 4] — 3h
+      Sub: PONAVLJANJE tema 3 + 4
+      Ned: ODMOR
+
+      [nastavak za svaku sedmicu]
+      ```
+
+integrations:
+  - name: "Telegram Bot"
+    type: "messaging"
+    config:
+      bot_token: "{telegram_bot_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/telegram"
+
+  - name: "WhatsApp Business"
+    type: "messaging"
+    config:
+      provider: "meta_cloud_api"
+      phone_number_id: "{whatsapp_phone_id}"
+      access_token: "{whatsapp_access_token}"
+      webhook_url: "https://{customer_slug}.openclawbalkan.ba/webhooks/whatsapp"
+
+  - name: "Web Widget"
+    type: "webchat"
+    config:
+      url: "https://{customer_slug}.openclawbalkan.ba/widget"
+      theme: "light"
+      position: "bottom-right"
+
+  - name: "CrossRef API"
+    type: "academic"
+    config:
+      base_url: "https://api.crossref.org"
+      mailto: "{admin_email}"
+
+  - name: "n8n"
+    type: "automation"
+    config:
+      base_url: "{n8n_base}"
+      workflows:
+        - "document-upload"
+        - "web-search"
+        - "export-md"
+        - "save-summary"
+        - "export-summary"
+        - "citation-add"
+        - "bibliography-export"
+        - "doi-lookup"
+        - "study-deadline"
+        - "study-reminder"
+        - "study-progress"
+
+pricing:
+  base_monthly_eur: 49
+  included_agents: 4
+  included_channels: 3
+  per_extra_channel_monthly_eur: 9
+  per_extra_language_monthly_eur: 9
+  estimated_token_cost_monthly_eur: 8
+  cloud_budget_limit_usd: 15
+  target_margin_percent: 55
+  note: "Visi token-troskovi zbog dugih dokumenata i claude-sonnet kao primarni model"
+
+onboarding:
+  required_from_customer:
+    - "Ime i prezime / Naziv organizacije"
+    - "Tip korisnika (student / istrazivac / NGO)"
+    - "Oblast istrazivanja / Fakultet / Predmeti"
+    - "Preferirani stil citiranja (APA / MLA / Chicago / Harvard)"
+    - "Preferirani jezik (bs / sr / en)"
+    - "Telegram username ili WhatsApp broj"
+    - "Dokumenti za upload (opciono, do 25 MB po fajlu)"
+  setup_duration_minutes: 10
+  auto_deploy: true

@@ -1,0 +1,96 @@
+# =============================================================================
+# OpenClaw Balkan — Docker Compose Template fuer Kunden-Instanz
+#
+# Platzhalter werden durch deploy-customer.sh ersetzt:
+#   {CUSTOMER_ID}  — z.B. "kunde001"
+#   {NET}          — Docker-Netzwerk-Name
+#   {VOL_DATA}     — Docker-Volume fuer App-Daten
+#   {VOL_PG}       — Docker-Volume fuer PostgreSQL
+#   {PORT}         — Interner Container-Port (z.B. 13001)
+#   {BUNDLE}       — Bundle-Name
+#   {IMAGE}        — OpenClaw Docker-Image
+# =============================================================================
+
+services:
+
+  # ─── OpenClaw Agent-Runtime ───────────────────────────────────────────────
+  openclaw_{CUSTOMER_ID}:
+    image: {IMAGE}
+    container_name: openclaw_{CUSTOMER_ID}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Datenbankverbindung aus .env zusammensetzen
+      - DATABASE_URL=postgresql://${PG_USER}:${PG_CRED}@postgres_{CUSTOMER_ID}:5432/${PG_DB}
+      - REDIS_URL=redis://:${CACHE_CRED}@redis_{CUSTOMER_ID}:6379/0
+      - PORT=${OPENCLAW_PORT}
+    volumes:
+      - {VOL_DATA}:/app/data
+      # Bundle-Konfiguration read-only einhaengen
+      - /opt/openclaw-balkan/bundles/{BUNDLE}.yaml:/app/config/bundle.yaml:ro
+    labels:
+      - "openclaw.customer={CUSTOMER_ID}"
+      - "openclaw.bundle={BUNDLE}"
+    networks:
+      - {NET}
+    depends_on:
+      postgres_{CUSTOMER_ID}:
+        condition: service_healthy
+      redis_{CUSTOMER_ID}:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${OPENCLAW_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ─── PostgreSQL (isoliert pro Kunde) ──────────────────────────────────────
+  postgres_{CUSTOMER_ID}:
+    image: postgres:16-alpine
+    container_name: postgres_{CUSTOMER_ID}
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${PG_USER}
+      - POSTGRES_DB=${PG_DB}
+      - POSTGRES_PASSWORD=${PG_CRED}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - {VOL_PG}:/var/lib/postgresql/data
+    networks:
+      - {NET}
+    # Kein exposed Port — nur intern erreichbar
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis (Session + Queue Cache) ────────────────────────────────────────
+  redis_{CUSTOMER_ID}:
+    image: redis:7-alpine
+    container_name: redis_{CUSTOMER_ID}
+    restart: unless-stopped
+    command: >
+      redis-server
+        --requirepass ${CACHE_CRED}
+        --maxmemory 128mb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+    networks:
+      - {NET}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${CACHE_CRED}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  {VOL_DATA}:
+    external: true
+  {VOL_PG}:
+    external: true
+
+networks:
+  {NET}:
+    external: true
