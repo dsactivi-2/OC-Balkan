@@ -211,9 +211,10 @@ def supervisor_node(state: CompanyState) -> dict[str, Any]:
         "scheduled_report": "ops_agent",
     }
 
-    if state.task_type and state.task_type in task_routes:
-        next_agent = task_routes[state.task_type]
-        reason = f"Deterministic route: task_type={state.task_type}"
+    task_type = state.get("task_type", "")
+    if task_type and task_type in task_routes:
+        next_agent = task_routes[task_type]
+        reason = f"Deterministic route: task_type={task_type}"
         logger.info(f"[supervisor] {reason} → {next_agent}")
         return {
             "current_agent": "supervisor",
@@ -224,7 +225,7 @@ def supervisor_node(state: CompanyState) -> dict[str, Any]:
     # --- LLM-based routing for ambiguous cases ---
     soul = _load_soul("supervisor")
     llm = _llm(MODEL_FAST, temperature=0.0)
-    messages = [SystemMessage(content=soul)] + list(state.messages)
+    messages = [SystemMessage(content=soul)] + list(state.get("messages", []))
 
     try:
         response = _invoke_with_retry(llm, messages)
@@ -272,28 +273,28 @@ def _make_agent_node(agent_name: str):
 
         # Build message chain: soul + context + conversation
         context_parts = []
-        if state.customer_name:
-            context_parts.append(f"Kunde: {state.customer_name}")
-        if state.customer_company:
-            context_parts.append(f"Firma: {state.customer_company}")
-        if state.customer_email:
-            context_parts.append(f"Email: {state.customer_email}")
-        if state.customer_phone:
-            context_parts.append(f"Telefon: {state.customer_phone}")
-        if state.customer_channel:
-            context_parts.append(f"Kanal: {state.customer_channel}")
-        if state.customer_market:
-            context_parts.append(f"Markt: {state.customer_market}")
-        if state.order_ref:
-            context_parts.append(f"Order: {state.order_ref}")
-        if state.bundle_name:
-            context_parts.append(f"Bundle: {state.bundle_name} ({state.bundle_price} EUR)")
+        if state.get("customer_name"):
+            context_parts.append(f"Kunde: {state['customer_name']}")
+        if state.get("customer_company"):
+            context_parts.append(f"Firma: {state['customer_company']}")
+        if state.get("customer_email"):
+            context_parts.append(f"Email: {state['customer_email']}")
+        if state.get("customer_phone"):
+            context_parts.append(f"Telefon: {state['customer_phone']}")
+        if state.get("customer_channel"):
+            context_parts.append(f"Kanal: {state['customer_channel']}")
+        if state.get("customer_market"):
+            context_parts.append(f"Markt: {state['customer_market']}")
+        if state.get("order_ref"):
+            context_parts.append(f"Order: {state['order_ref']}")
+        if state.get("bundle_name"):
+            context_parts.append(f"Bundle: {state['bundle_name']} ({state.get('bundle_price', '?')} EUR)")
 
         system_content = soul
         if context_parts:
             system_content += "\n\n## Aktueller Kontext\n" + "\n".join(context_parts)
 
-        messages = [SystemMessage(content=system_content)] + list(state.messages)
+        messages = [SystemMessage(content=system_content)] + list(state.get("messages", []))
 
         # Agent loop — tool calls with retry
         all_messages = []

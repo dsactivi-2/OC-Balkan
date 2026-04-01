@@ -36,7 +36,7 @@ AGENT_NODES = {
 # ── Routing functions ───────────────────────────────────────────
 def route_from_supervisor(state: CompanyState) -> str:
     """Route from supervisor to the designated agent."""
-    agent = state.next_agent
+    agent = state.get("next_agent", "support_agent")
     if agent in AGENT_NODES:
         return agent
     return "support_agent"
@@ -44,9 +44,11 @@ def route_from_supervisor(state: CompanyState) -> str:
 
 def should_continue(state: CompanyState) -> str:
     """After an agent runs, decide: end or hand off to another agent."""
-    if state.should_end:
+    if state.get("should_end"):
         return "end"
-    if state.next_agent and state.next_agent != state.current_agent:
+    next_ag = state.get("next_agent", "")
+    current_ag = state.get("current_agent", "")
+    if next_ag and next_ag != current_ag:
         return "supervisor"
     return "end"
 
