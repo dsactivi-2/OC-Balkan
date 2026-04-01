@@ -855,6 +855,41 @@ ul { list-style: none; padding: 0; margin: 0; }
 
 .order-form textarea { resize: vertical; min-height: 60px; }
 
+/* Validation styles */
+.order-form input:invalid:not(:placeholder-shown) {
+  border-color: var(--danger);
+}
+.order-form input:valid:not(:placeholder-shown) {
+  border-color: var(--accent);
+}
+
+/* Agent tags in modal */
+.modal-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0 16px;
+  padding: 10px 12px;
+  background: rgba(62,207,142,0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(62,207,142,0.15);
+}
+.modal-agents-label {
+  font-size: 12px;
+  color: var(--muted);
+  width: 100%;
+  margin-bottom: 2px;
+}
+.modal-agent-tag {
+  font-size: 13px;
+  background: rgba(62,207,142,0.12);
+  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
 .order-success {
   text-align: center;
   padding: 20px 0;

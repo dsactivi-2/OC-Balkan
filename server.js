@@ -199,6 +199,30 @@ app.post("/api/orders", (req, res) => {
     const missing = required.filter((f) => !String(payload[f] || "").trim());
     if (missing.length > 0) { res.status(400).json({ error: "Missing required fields", missing }); return; }
 
+    // Name: min 2 chars, no digits
+    const nameVal = String(payload.name).trim();
+    if (nameVal.length < 2 || /\d/.test(nameVal)) {
+      res.status(400).json({ error: "Ime mora imati min. 2 znaka i ne smije sadržavati brojeve" }); return;
+    }
+
+    // Company: min 2 chars
+    if (String(payload.company).trim().length < 2) {
+      res.status(400).json({ error: "Naziv firme mora imati min. 2 znaka" }); return;
+    }
+
+    // Email: proper format
+    const emailVal = String(payload.email).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+      res.status(400).json({ error: "Neispravna email adresa" }); return;
+    }
+
+    // Phone: min 8 digits, no letters
+    const phoneVal = String(payload.phone).trim();
+    const phoneDigits = phoneVal.replace(/\D/g, "");
+    if (phoneDigits.length < 8 || /[a-zA-Z]/.test(phoneVal)) {
+      res.status(400).json({ error: "Neispravan broj telefona (min. 8 cifara)" }); return;
+    }
+
     const bundle = VALID_BUNDLES[payload.bundle];
     if (!bundle) { res.status(400).json({ error: "Invalid bundle", valid: Object.keys(VALID_BUNDLES) }); return; }
 

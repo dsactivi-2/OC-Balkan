@@ -150,12 +150,13 @@ function markup(c) {
     <div class="modal-badge" id="modal-badge"></div>
     <h2 id="modal-title"></h2>
     <p class="modal-price" id="modal-price"></p>
-    <form class="order-form" id="order-form" novalidate>
+    <div class="modal-agents" id="modal-agents" hidden></div>
+    <form class="order-form" id="order-form">
       <input type="hidden" name="bundle" id="order-bundle" />
-      <label>Ime i prezime<input name="name" type="text" required placeholder="npr. Ana Kovačević" /></label>
-      <label>Firma<input name="company" type="text" required placeholder="naziv firme" /></label>
-      <label>Email<input name="email" type="email" required placeholder="vas@email.ba" /></label>
-      <label>Telefon / WhatsApp<input name="phone" type="tel" required placeholder="+387 61 ..." /></label>
+      <label>Ime i prezime<input name="name" type="text" required minlength="2" pattern="[^0-9]+" placeholder="npr. Ana Kovačević" /></label>
+      <label>Firma<input name="company" type="text" required minlength="2" placeholder="naziv firme" /></label>
+      <label>Email<input name="email" type="email" required pattern="[^\\s@]+@[^\\s@]+\\.[^\\s@]+" placeholder="vas@email.ba" /></label>
+      <label>Telefon / WhatsApp<input name="phone" type="tel" required pattern="[\\+\\d\\s\\-\\(\\)]{8,}" placeholder="+387 61 ..." /></label>
       <div class="hp-field" aria-hidden="true">
         <label>Website<input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
       </div>
@@ -239,6 +240,24 @@ function enhancePage() {
     modalBadge.textContent = bundlePrice + " EUR / mj.";
     modalTitle.textContent = bundleName;
     modalPrice.textContent = `Naručujete: ${bundleName}`;
+
+    // Show agents included in this bundle
+    const agentsList = document.getElementById("modal-agents");
+    if (agentsList) {
+      const bundleCard = document.querySelector(`.bundle-cta[data-bundle="${bundleKey}"]`);
+      if (bundleCard) {
+        const card = bundleCard.closest(".bundle-card");
+        const agents = card ? card.querySelectorAll(".bundle-agents li") : [];
+        if (agents.length > 0) {
+          agentsList.innerHTML = `<span class="modal-agents-label">Uključeni agenti:</span> ` +
+            Array.from(agents).map((a) => `<span class="modal-agent-tag">${a.textContent}</span>`).join("");
+          agentsList.hidden = false;
+        } else {
+          agentsList.hidden = true;
+        }
+      }
+    }
+
     orderForm.style.display = "";
     orderSuccess.hidden = true;
     orderStatus.textContent = "";
@@ -275,9 +294,43 @@ function enhancePage() {
     if (!(orderForm instanceof HTMLFormElement)) return;
 
     const data = Object.fromEntries(new FormData(orderForm).entries());
+
+    // Required fields check
     const required = ["name", "company", "email", "phone", "bundle"];
     if (required.some((f) => !String(data[f] || "").trim())) {
       orderStatus.textContent = "Popunite obavezna polja.";
+      orderStatus.className = "form-status error";
+      return;
+    }
+
+    // Name: min 2 chars, no numbers
+    const name = String(data.name).trim();
+    if (name.length < 2 || /\d/.test(name)) {
+      orderStatus.textContent = "Unesite ispravno ime i prezime.";
+      orderStatus.className = "form-status error";
+      return;
+    }
+
+    // Company: min 2 chars
+    if (String(data.company).trim().length < 2) {
+      orderStatus.textContent = "Unesite naziv firme (min. 2 znaka).";
+      orderStatus.className = "form-status error";
+      return;
+    }
+
+    // Email: must contain @ and a dot after @
+    const email = String(data.email).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      orderStatus.textContent = "Unesite ispravnu email adresu (npr. ime@firma.ba).";
+      orderStatus.className = "form-status error";
+      return;
+    }
+
+    // Phone: must be digits, spaces, +, -, (, ) — min 8 digits
+    const phone = String(data.phone).trim();
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length < 8 || /[a-zA-Z]/.test(phone)) {
+      orderStatus.textContent = "Unesite ispravan broj telefona (min. 8 cifara, npr. +387 61 123 456).";
       orderStatus.className = "form-status error";
       return;
     }
