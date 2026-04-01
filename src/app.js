@@ -19,7 +19,7 @@ function markup(c) {
     OpenClaw Balkan
   </div>
   <div class="nav-links">
-    ${c.nav.map((n, i) => `<a href="#${["usecases","paketi","pilot","kontakt"][i]}">${esc(n)}</a>`).join("")}
+    ${c.nav.map((n, i) => `<a href="#${["bundlovi","koraci","pilot","kontakt"][i]}">${esc(n)}</a>`).join("")}
   </div>
   <a class="nav-switch" href="${c.switchTo.href}">${esc(c.switchTo.label)}</a>
 </nav>
@@ -33,41 +33,50 @@ function markup(c) {
     <p class="hero-sub">${esc(c.sub)}</p>
     <div class="cta-row">
       <a class="btn btn-primary" href="#kontakt">${esc(c.cta)} →</a>
-      <a class="btn btn-ghost" href="#paketi">${esc(c.ctaSub)}</a>
+      <a class="btn btn-ghost" href="#bundlovi">${esc(c.ctaSub)}</a>
     </div>
-    <div class="kpi-row">
-      ${c.kpis.map(([v, t]) => `
-        <div class="kpi">
-          <strong>${esc(v)}</strong>
-          <span>${esc(t)}</span>
-        </div>
-      `).join("")}
+    <div class="trust-row">
+      <span class="trust-item">24/7 dostupnost</span>
+      <span class="trust-item">Setup za 3–5 dana</span>
+      <span class="trust-item">Bez ugovora na godinu</span>
+      <span class="trust-item">Od 25 EUR/mj.</span>
     </div>
   </section>
 
-  <!-- USE CASES -->
-  <section class="section reveal" id="usecases">
-    <div class="section-label">Use Cases</div>
-    <h2>Šta agent stvarno radi.</h2>
-    <p class="section-intro">Konkretni primjeri iz svakodnevnog poslovanja — ne teorija.</p>
-    <div class="usecase-grid">
-      ${c.usecases.map((u) => `
-        <div class="usecase-card">
-          <span class="usecase-icon">${u.icon}</span>
-          <h3>${esc(u.title)}</h3>
-          <div class="scenario">${esc(u.scenario)}</div>
-          <p>${esc(u.desc)}</p>
-          <div class="result">${esc(u.result)}</div>
+  <!-- BUNDLES -->
+  <section class="section reveal" id="bundlovi">
+    <div class="section-label">Bundlovi</div>
+    <h2>Izaberite paket za vaš biznis.</h2>
+    <p class="section-intro">5 gotovih paketa — svaki sa specijalizovanim AI agentima. Od jednog agenta do kompletnog tima.</p>
+    <div class="bundle-grid">
+      ${c.bundles.map((b) => `
+        <div class="bundle-card${b.featured ? " featured" : ""}">
+          ${b.featured ? '<span class="bundle-popular">Najpopularniji</span>' : ""}
+          <div class="bundle-header">
+            <span class="bundle-icon">${b.icon}</span>
+            <span class="bundle-tag">${esc(b.tag)}</span>
+          </div>
+          <h3>${esc(b.name)}</h3>
+          <div class="bundle-price"><span class="price-num">${esc(b.price)}</span> <span class="price-period">${esc(b.period)}</span></div>
+          <p class="bundle-target">${esc(b.target)}</p>
+          <p class="bundle-desc">${esc(b.desc)}</p>
+          <div class="bundle-agents">
+            <span class="agents-label">Agenti:</span>
+            <ul>${b.agents.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>
+          </div>
+          <div class="bundle-channels">${esc(b.channels)}</div>
+          <a class="btn btn-primary bundle-cta" href="#kontakt">${esc(c.cta)} →</a>
         </div>
       `).join("")}
     </div>
+    <p class="bundle-note">+9 EUR/mj. za svaki dodatni kanal · Godišnji plan: 10 mjeseci plaćate, 12 koristite</p>
   </section>
 
   <!-- HOW IT WORKS -->
-  <section class="section reveal">
-    <div class="section-label">Kako funkcioniše</div>
+  <section class="section reveal" id="koraci">
+    <div class="section-label">Kako radi</div>
     <h2>Od dogovora do agenta za 5 dana.</h2>
-    <p class="section-intro" style="margin-bottom: 28px;">Bez IT projekata, bez dugih implementacija.</p>
+    <p class="section-intro" style="margin-bottom: 28px;">Bez IT projekata. Bez dugih implementacija.</p>
     <div class="steps">
       ${c.steps.map((s) => `
         <div class="step">
@@ -76,33 +85,6 @@ function markup(c) {
           <p>${esc(s.desc)}</p>
         </div>
       `).join("")}
-    </div>
-  </section>
-
-  <!-- PACKAGES -->
-  <section class="section reveal" id="paketi">
-    <div class="section-label">Paketi</div>
-    <h2>Dvije opcije. Jasne cijene.</h2>
-    <p class="section-intro" style="margin-bottom: 28px;">Počinjemo konzervativno — širimo se kad vidite vrijednost.</p>
-    <div class="pkg-grid">
-      <div class="pkg-card">
-        <span class="pkg-tag">${esc(c.packageA.tag)}</span>
-        <h3>${esc(c.packageA.name)}</h3>
-        <p class="pkg-desc">${esc(c.packageA.desc)}</p>
-        <ul>${liItems(c.packageA.items)}</ul>
-        <div class="pkg-price">${esc(c.packageA.price)}</div>
-        <div class="pkg-setup">${esc(c.packageA.setup)}</div>
-        <a class="btn btn-ghost" href="#kontakt" style="width:100%; justify-content:center;">Zatraži demo</a>
-      </div>
-      <div class="pkg-card featured">
-        <span class="pkg-tag">${esc(c.packageB.tag)}</span>
-        <h3>${esc(c.packageB.name)}</h3>
-        <p class="pkg-desc">${esc(c.packageB.desc)}</p>
-        <ul>${liItems(c.packageB.items)}</ul>
-        <div class="pkg-price">${esc(c.packageB.price)}</div>
-        <div class="pkg-setup">${esc(c.packageB.setup)}</div>
-        <a class="btn btn-primary" href="#kontakt" style="width:100%; justify-content:center;">Zatraži demo →</a>
-      </div>
     </div>
   </section>
 
@@ -123,7 +105,7 @@ function markup(c) {
   <section class="section reveal">
     <div class="section-label">FAQ</div>
     <h2>Osnovna pitanja.</h2>
-    <div class="grid-2" style="margin-top:28px;">
+    <div class="faq-grid" style="margin-top:28px;">
       ${c.faq.map(([q, a]) => `
         <div class="card">
           <h3 style="font-size:16px; margin-bottom:8px;">${esc(q)}</h3>
@@ -147,16 +129,18 @@ function markup(c) {
         <div class="hp-field" aria-hidden="true">
           <label>Website<input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
         </div>
-        <label>Tip biznisa
+        <label>Koji bundle vas zanima?
           <select name="segment" required>
             <option value="">Izaberi</option>
-            <option value="beauty">Beauty / frizer</option>
-            <option value="restaurant">Restoran / kafić</option>
-            <option value="office">Ordinacija / kancelarija</option>
-            <option value="other">Drugo</option>
+            <option value="solo">Solo Agent (25 EUR)</option>
+            <option value="learning">Learning Buddy (29 EUR)</option>
+            <option value="marketing">Social Marketing Team (39 EUR)</option>
+            <option value="research">Research Bundle (49 EUR)</option>
+            <option value="office">Office Bundle (79 EUR)</option>
+            <option value="unsure">Nisam siguran/a</option>
           </select>
         </label>
-        <label>Šta želiš riješiti?<textarea name="message" rows="4" required placeholder="Kratki opis situacije..."></textarea></label>
+        <label>Šta želite riješiti?<textarea name="message" rows="3" required placeholder="Kratki opis situacije..."></textarea></label>
         <button class="btn btn-primary" type="submit" style="width:100%; height:48px; font-size:15px; justify-content:center;">Pošalji upit →</button>
         <p class="form-status" id="form-status" aria-live="polite"></p>
       </form>
@@ -167,7 +151,7 @@ function markup(c) {
         </div>
         <div class="contact-card" style="background: rgba(62,207,142,0.04); border-color: rgba(62,207,142,0.2);">
           <h3 style="font-size:14px; color: var(--muted); margin-bottom:10px;">Direktno</h3>
-          <p style="font-size:14px;">Možeš nas kontaktirati i direktno via WhatsApp ili Messenger. Isti odgovor, isti tim.</p>
+          <p style="font-size:14px;">Možete nas kontaktirati i direktno via WhatsApp ili Messenger.</p>
         </div>
       </div>
     </div>
@@ -246,7 +230,7 @@ function enhancePage() {
         status.className = "form-status success";
       })
       .catch(() => {
-        status.textContent = "Slanje nije uspelo. Proveri da li radi produkcijski server.";
+        status.textContent = "Slanje nije uspelo. Pokušajte ponovo ili nas kontaktirajte direktno.";
         status.className = "form-status error";
       });
   });
