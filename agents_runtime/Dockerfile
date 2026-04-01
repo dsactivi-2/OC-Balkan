@@ -12,12 +12,12 @@ RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends docker-ce-cli && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Python dependencies
-COPY requirements.txt .
+# Python dependencies (context is project root)
+COPY agents_runtime/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
-COPY . .
+COPY agents_runtime/ ./agents_runtime/
 
 EXPOSE 8000
 
