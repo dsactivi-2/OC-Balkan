@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ava-agents": {
+      "command": "ssh",
+      "args": [
+        "oc-balkan",
+        "docker", "exec", "-i", "openclaw-ava",
+        "python", "-m", "agents_runtime.mcp_server"
+      ],
+      "env": {}
+    }
+  }
+}

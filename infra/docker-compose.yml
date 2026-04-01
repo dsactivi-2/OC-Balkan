@@ -259,6 +259,7 @@ services:
       - LINKEDIN_ACCESS_TOKEN=${LINKEDIN_ACCESS_TOKEN:-}
       - ADMIN_VIBER_ID=${ADMIN_VIBER_ID:-}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-ds.selmanovic@gmail.com}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
