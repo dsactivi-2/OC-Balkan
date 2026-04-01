@@ -79,9 +79,14 @@ async function forwardWebhook(url, payload) {
 }
 
 function triggerProvision(orderRef, bundleId) {
-  if (!provisionScript) return;
-  const cmd = `${provisionScript} "${orderRef}" "${bundleId}"`;
-  exec(cmd, { timeout: 60_000 }, (err, stdout, stderr) => {
+  if (!provisionScript) {
+    console.log(`[provision] No PROVISION_SCRIPT set, skipping for ${orderRef}`);
+    return;
+  }
+  const safeRef = orderRef.replace(/[^A-Za-z0-9\-]/g, "");
+  const safeBundle = bundleId.replace(/[^a-z_]/g, "");
+  const cmd = `${provisionScript} "${safeRef}" "${safeBundle}"`;
+  exec(cmd, { timeout: 120_000 }, (err, stdout, stderr) => {
     if (err) {
       console.error(`[provision] Error for ${orderRef}:`, stderr || err.message);
       return;
@@ -92,7 +97,48 @@ function triggerProvision(orderRef, bundleId) {
     } catch {
       console.error(`[provision] DB update failed for ${orderRef}`);
     }
+
+    // Schedule onboarding trigger (5 minutes delay)
+    scheduleOnboarding(orderRef, safeBundle);
   });
+}
+
+function scheduleOnboarding(orderRef, bundleId) {
+  const onboardingWebhook = process.env.ONBOARDING_WEBHOOK_URL || "";
+  if (!onboardingWebhook) {
+    console.log(`[onboarding] No ONBOARDING_WEBHOOK_URL set, skipping for ${orderRef}`);
+    return;
+  }
+  const delayMs = 5 * 60 * 1000; // 5 minutes
+  console.log(`[onboarding] Scheduling onboarding for ${orderRef} in 5 minutes`);
+  setTimeout(async () => {
+    try {
+      const order = getOrder(orderRef);
+      if (!order) {
+        console.error(`[onboarding] Order ${orderRef} not found`);
+        return;
+      }
+      const payload = {
+        event: "onboarding_start",
+        orderRef,
+        bundleId,
+        customerName: order.name,
+        company: order.company,
+        email: order.email,
+        phone: order.phone,
+        preferredChannel: order.preferredChannel,
+        market: order.market,
+      };
+      await fetch(onboardingWebhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      console.log(`[onboarding] Triggered for ${orderRef}`);
+    } catch (err) {
+      console.error(`[onboarding] Error for ${orderRef}:`, err.message);
+    }
+  }, delayMs);
 }
 
 // ── Health ──────────────────────────────────────────────────────

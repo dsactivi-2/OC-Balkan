@@ -209,8 +209,44 @@ else
     docker compose restart nginx
 fi
 
-# ─── Step 8: Cron Jobs ───
-echo -e "\n${BOLD}Step 8/8: Cron Jobs${NC}"
+# ─── Step 8: Make scripts executable ───
+echo -e "\n${BOLD}Step 8/10: Script Permissions${NC}"
+chmod +x "$SCRIPT_DIR"/provision-bundle.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/deploy-onboarding-agent.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/setup-channels.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/monitor.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/backup.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/status.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/restore.sh 2>/dev/null || true
+log "All scripts made executable"
+
+# ─── Step 9: Deploy Onboarding Agent ───
+echo -e "\n${BOLD}Step 9/10: Onboarding Agent${NC}"
+# Wait for openclaw-platform to be healthy
+echo -n "  Waiting for OpenClaw Platform"
+for i in $(seq 1 30); do
+    PLATFORM_STATUS=$(docker inspect --format='{{.State.Health.Status}}' openclaw-platform 2>/dev/null || echo "starting")
+    if [[ "$PLATFORM_STATUS" == "healthy" ]]; then
+        echo ""
+        log "OpenClaw Platform is healthy"
+        break
+    fi
+    echo -n "."
+    sleep 3
+done
+
+# Deploy onboarding agent
+if [[ -x "$SCRIPT_DIR/deploy-onboarding-agent.sh" ]]; then
+    "$SCRIPT_DIR/deploy-onboarding-agent.sh" && log "Onboarding agent deployed" || warn "Onboarding agent deploy failed — run manually later"
+fi
+
+# Setup channels if credentials are available
+if [[ -x "$SCRIPT_DIR/setup-channels.sh" ]]; then
+    "$SCRIPT_DIR/setup-channels.sh" && log "Channels configured" || warn "Channel setup incomplete — run setup-channels.sh later with credentials"
+fi
+
+# ─── Step 10: Cron Jobs ───
+echo -e "\n${BOLD}Step 10/10: Cron Jobs${NC}"
 
 # Remove old openclaw cron entries and add new ones atomically
 { crontab -l 2>/dev/null | grep -v "openclaw" || true; cat <<CRON

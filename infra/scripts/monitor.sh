@@ -87,7 +87,7 @@ if (( LOAD_AVG > CPU_THRESHOLD )); then
 fi
 
 # ─── Check 4: Docker Containers ───
-CONTAINERS=("openclaw-app" "openclaw-postgres" "openclaw-redis" "openclaw-nginx")
+CONTAINERS=("openclaw-app" "openclaw-platform" "openclaw-postgres" "openclaw-redis" "openclaw-nginx")
 for CONTAINER in "${CONTAINERS[@]}"; do
     STATUS=$(docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo "missing")
     if [[ "$STATUS" != "running" ]]; then
@@ -104,11 +104,19 @@ for CONTAINER in "${CONTAINERS[@]}"; do
 done
 
 # ─── Check 5: OpenClaw HTTP Health ───
-PORT="${OPENCLAW_PORT:-3000}"
-[[ "$PORT" =~ ^[0-9]+$ ]] || PORT=3000
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:${PORT}/api/health" 2>/dev/null || echo "000")
+# Check Website health
+PORT="${OPENCLAW_PORT:-4173}"
+[[ "$PORT" =~ ^[0-9]+$ ]] || PORT=4173
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:${PORT}/health" 2>/dev/null || echo "000")
 if [[ "$HTTP_STATUS" != "200" ]]; then
-    send_alert "OpenClaw health check failed (HTTP $HTTP_STATUS)" "Health endpoint returned $HTTP_STATUS. Expected 200." "CRITICAL"
+    send_alert "Website health check failed (HTTP $HTTP_STATUS)" "Health endpoint returned $HTTP_STATUS. Expected 200." "CRITICAL"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check OpenClaw Platform health
+PLATFORM_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:18789/" 2>/dev/null || echo "000")
+if [[ "$PLATFORM_STATUS" == "000" ]]; then
+    send_alert "OpenClaw Platform unreachable" "Platform at port 18789 is not responding." "CRITICAL"
     ERRORS=$((ERRORS + 1))
 fi
 

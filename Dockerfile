@@ -16,6 +16,16 @@ ENV NODE_ENV=production
 ENV PORT=4173
 ENV HOST=0.0.0.0
 
+# Install Docker CLI (needed for provision-bundle.sh to exec into openclaw-platform)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends docker-ce-cli && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
@@ -23,6 +33,9 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.js ./server.js
 COPY --from=build /app/src ./src
 COPY --from=build /app/data ./data
+COPY --from=build /app/infra/scripts ./infra/scripts
+
+RUN chmod +x ./infra/scripts/*.sh 2>/dev/null || true
 
 EXPOSE 4173
 
