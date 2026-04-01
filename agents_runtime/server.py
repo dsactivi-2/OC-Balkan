@@ -324,3 +324,388 @@ async def invoke_agent_directly(agent_name: str, msg: InboundMessage):
         customer_phone=msg.sender_phone,
         customer_channel=msg.channel,
     )
+
+
+# ══════════════════════════════════════════════════════════════════
+# ── Admin Panel APIs ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+
+import json
+import os
+import shutil
+import uuid
+from typing import Optional
+
+SOULS_DIR = Path(__file__).parent / "souls"
+TOOLS_DIR = Path(__file__).parent / "tools"
+RUNTIME_DIR = Path(__file__).parent
+
+# Store chat history in memory (backed by checkpointer for persistence)
+_chat_sessions: dict[str, list[dict]] = {}
+# Store logs in memory ring buffer
+_log_buffer: list[dict] = []
+MAX_LOG_ENTRIES = 500
+
+
+def _add_log(level: str, source: str, message: str):
+    """Add to in-memory log buffer."""
+    entry = {
+        "ts": datetime.utcnow().isoformat(),
+        "level": level,
+        "source": source,
+        "message": message,
+    }
+    _log_buffer.append(entry)
+    if len(_log_buffer) > MAX_LOG_ENTRIES:
+        _log_buffer.pop(0)
+
+
+# ── 1. Soul MD Files — Read & Write ─────────────────────────────
+
+@app.get("/api/admin/souls")
+async def list_souls():
+    """List all SOUL.md files."""
+    souls = {}
+    for f in sorted(SOULS_DIR.glob("*.md")):
+        souls[f.stem] = {
+            "filename": f.name,
+            "size": f.stat().st_size,
+            "preview": f.read_text(encoding="utf-8")[:200],
+        }
+    return {"ok": True, "souls": souls}
+
+
+@app.get("/api/admin/souls/{name}")
+async def get_soul(name: str):
+    """Read a SOUL.md file."""
+    path = SOULS_DIR / f"{name}.md"
+    if not path.exists():
+        raise HTTPException(404, f"Soul not found: {name}")
+    return {"ok": True, "name": name, "content": path.read_text(encoding="utf-8")}
+
+
+class SoulUpdate(BaseModel):
+    content: str
+
+@app.put("/api/admin/souls/{name}")
+async def update_soul(name: str, body: SoulUpdate):
+    """Update a SOUL.md file."""
+    path = SOULS_DIR / f"{name}.md"
+    if not path.exists():
+        raise HTTPException(404, f"Soul not found: {name}")
+    # Backup
+    backup = SOULS_DIR / f"{name}.md.bak"
+    shutil.copy2(path, backup)
+    path.write_text(body.content, encoding="utf-8")
+    _add_log("INFO", "admin", f"Soul updated: {name}.md ({len(body.content)} chars)")
+    return {"ok": True, "name": name, "size": len(body.content)}
+
+
+@app.post("/api/admin/souls/{name}")
+async def create_soul(name: str, body: SoulUpdate):
+    """Create a new SOUL.md file."""
+    path = SOULS_DIR / f"{name}.md"
+    if path.exists():
+        raise HTTPException(409, f"Soul already exists: {name}")
+    path.write_text(body.content, encoding="utf-8")
+    _add_log("INFO", "admin", f"Soul created: {name}.md")
+    return {"ok": True, "name": name, "created": True}
+
+
+# ── 2. Agent Configuration ───────────────────────────────────────
+
+@app.get("/api/admin/agents/config")
+async def get_agents_config():
+    """Full agent config: models, tools, souls."""
+    from agents_runtime.agents import TOOL_SETS, AGENT_MODELS, SOUL_NAMES
+    from agents_runtime.config import MODEL_SMART, MODEL_FAST, MODEL_LOCAL
+    agents = {}
+    for name in TOOL_SETS:
+        soul_path = SOULS_DIR / f"{name.replace('_agent', '')}.md"
+        agents[name] = {
+            "model": AGENT_MODELS.get(name, MODEL_SMART),
+            "soul_name": SOUL_NAMES.get(name, name),
+            "soul_file": soul_path.name if soul_path.exists() else None,
+            "tools": [t.name for t in TOOL_SETS[name]],
+            "tool_count": len(TOOL_SETS[name]),
+        }
+    return {
+        "ok": True,
+        "agents": agents,
+        "available_models": {
+            "smart": MODEL_SMART,
+            "fast": MODEL_FAST,
+            "local": MODEL_LOCAL,
+        },
+    }
+
+
+class AgentCloneRequest(BaseModel):
+    source_agent: str
+    new_name: str
+    new_soul_content: Optional[str] = None
+    model: Optional[str] = None
+
+@app.post("/api/admin/agents/clone")
+async def clone_agent(req: AgentCloneRequest):
+    """Clone an agent's soul file (runtime tool assignment needs restart)."""
+    source_soul = req.source_agent.replace("_agent", "")
+    source_path = SOULS_DIR / f"{source_soul}.md"
+    if not source_path.exists():
+        raise HTTPException(404, f"Source soul not found: {source_soul}")
+
+    new_soul = req.new_name.replace("_agent", "")
+    new_path = SOULS_DIR / f"{new_soul}.md"
+    if new_path.exists():
+        raise HTTPException(409, f"Soul already exists: {new_soul}")
+
+    content = req.new_soul_content or source_path.read_text(encoding="utf-8")
+    new_path.write_text(content, encoding="utf-8")
+
+    _add_log("INFO", "admin", f"Agent cloned: {source_soul} → {new_soul}")
+    return {
+        "ok": True,
+        "cloned_from": source_soul,
+        "new_agent": new_soul,
+        "note": "Soul file created. Add to TOOL_SETS in agents.py and restart to activate.",
+    }
+
+
+# ── 3. Chat History ──────────────────────────────────────────────
+
+@app.get("/api/admin/chats")
+async def list_chats():
+    """List all chat sessions."""
+    sessions = []
+    for sid, msgs in _chat_sessions.items():
+        sessions.append({
+            "session_id": sid,
+            "message_count": len(msgs),
+            "last_message": msgs[-1] if msgs else None,
+        })
+    return {"ok": True, "sessions": sessions}
+
+
+@app.get("/api/admin/chats/{session_id}")
+async def get_chat(session_id: str):
+    """Get messages for a chat session."""
+    msgs = _chat_sessions.get(session_id, [])
+    return {"ok": True, "session_id": session_id, "messages": msgs}
+
+
+@app.post("/api/admin/chat")
+async def admin_chat(request: Request):
+    """Admin chat — stores history, returns response."""
+    body = await request.json()
+    text = body.get("text", "")
+    session_id = body.get("session_id", str(uuid.uuid4())[:12])
+    agent = body.get("agent", "auto")
+    channel = body.get("channel", "web")
+
+    if not text.strip():
+        raise HTTPException(400, "Empty message")
+
+    # Store user message
+    if session_id not in _chat_sessions:
+        _chat_sessions[session_id] = []
+
+    _chat_sessions[session_id].append({
+        "role": "user",
+        "text": text,
+        "ts": datetime.utcnow().isoformat(),
+        "agent": agent,
+    })
+
+    _add_log("INFO", "chat", f"[{session_id}] User: {text[:80]}")
+
+    # Build graph call
+    extra = {"customer_channel": channel}
+    if agent != "auto":
+        extra["next_agent"] = agent
+
+    thread = f"admin-{session_id}"
+    result = await run_graph(message=text, thread_id=thread, **extra)
+
+    response_text = result.get("response", result.get("error", "Keine Antwort"))
+    responding_agent = result.get("agent", agent)
+
+    # Store assistant message
+    _chat_sessions[session_id].append({
+        "role": "assistant",
+        "text": response_text,
+        "ts": datetime.utcnow().isoformat(),
+        "agent": responding_agent,
+        "actions": result.get("actions", []),
+    })
+
+    _add_log("INFO", "chat", f"[{session_id}] {responding_agent}: {response_text[:80]}")
+
+    return {
+        "ok": result.get("ok", False),
+        "session_id": session_id,
+        "agent": responding_agent,
+        "response": response_text,
+        "actions": result.get("actions", []),
+    }
+
+
+# ── 4. Logs ──────────────────────────────────────────────────────
+
+@app.get("/api/admin/logs")
+async def get_logs(limit: int = 100, level: str = ""):
+    """Get recent log entries."""
+    logs = _log_buffer[-limit:]
+    if level:
+        logs = [l for l in logs if l["level"].upper() == level.upper()]
+    return {"ok": True, "count": len(logs), "logs": logs}
+
+
+# ── 5. Config / Settings ─────────────────────────────────────────
+
+@app.get("/api/admin/config")
+async def get_config():
+    """Get current configuration (redacted secrets)."""
+    from agents_runtime import config as cfg
+
+    def _redact(val: str) -> str:
+        if not val or len(val) < 8:
+            return "***" if val else ""
+        return val[:4] + "..." + val[-4:]
+
+    return {
+        "ok": True,
+        "config": {
+            "models": {
+                "MODEL_SMART": cfg.MODEL_SMART,
+                "MODEL_FAST": cfg.MODEL_FAST,
+                "MODEL_LOCAL": cfg.MODEL_LOCAL,
+            },
+            "credentials": {
+                "ANTHROPIC_API_KEY": _redact(cfg.ANTHROPIC_API_KEY),
+                "VIBER_AUTH_TOKEN": _redact(cfg.VIBER_AUTH_TOKEN),
+                "WHATSAPP_API_TOKEN": _redact(cfg.WHATSAPP_API_TOKEN),
+                "HETZNER_API_TOKEN": _redact(cfg.HETZNER_API_TOKEN),
+                "STRIPE_SECRET_KEY": _redact(cfg.STRIPE_SECRET_KEY),
+                "FACEBOOK_PAGE_TOKEN": _redact(cfg.FACEBOOK_PAGE_TOKEN),
+                "INSTAGRAM_ACCESS_TOKEN": _redact(cfg.INSTAGRAM_ACCESS_TOKEN),
+            },
+            "services": {
+                "WEBSITE_BASE_URL": cfg.WEBSITE_BASE_URL,
+                "OPENCLAW_PLATFORM_URL": cfg.OPENCLAW_PLATFORM_URL,
+                "N8N_BASE_URL": cfg.N8N_BASE_URL,
+                "POSTGRES_URL": _redact(cfg.POSTGRES_URL),
+                "LITELLM_BASE_URL": cfg.LITELLM_BASE_URL,
+            },
+            "smtp": {
+                "SMTP_HOST": cfg.SMTP_HOST,
+                "SMTP_PORT": cfg.SMTP_PORT,
+                "SMTP_FROM": cfg.SMTP_FROM,
+                "SMTP_USER": _redact(cfg.SMTP_USER),
+            },
+            "admin": {
+                "ADMIN_EMAIL": cfg.ADMIN_EMAIL,
+                "SERVER_IP": cfg.SERVER_IP,
+            },
+        },
+    }
+
+
+# ── 6. File Upload ───────────────────────────────────────────────
+
+from fastapi import UploadFile, File
+
+UPLOAD_DIR = Path(__file__).parent / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+@app.post("/api/admin/upload")
+async def upload_file(file: UploadFile = File(...), target: str = "uploads"):
+    """Upload a file (souls, uploads, or tools directory)."""
+    ALLOWED_TARGETS = {
+        "uploads": UPLOAD_DIR,
+        "souls": SOULS_DIR,
+    }
+    target_dir = ALLOWED_TARGETS.get(target, UPLOAD_DIR)
+    target_dir.mkdir(exist_ok=True)
+
+    dest = target_dir / file.filename
+    content = await file.read()
+    dest.write_bytes(content)
+
+    _add_log("INFO", "upload", f"File uploaded: {file.filename} → {target}/ ({len(content)} bytes)")
+    return {
+        "ok": True,
+        "filename": file.filename,
+        "target": target,
+        "size": len(content),
+    }
+
+@app.get("/api/admin/files/{directory}")
+async def list_files(directory: str):
+    """List files in a directory."""
+    ALLOWED = {
+        "souls": SOULS_DIR,
+        "tools": TOOLS_DIR,
+        "uploads": UPLOAD_DIR,
+        "static": STATIC_DIR,
+    }
+    dir_path = ALLOWED.get(directory)
+    if not dir_path or not dir_path.exists():
+        raise HTTPException(404, f"Directory not found: {directory}")
+
+    files = []
+    for f in sorted(dir_path.iterdir()):
+        if f.is_file():
+            files.append({
+                "name": f.name,
+                "size": f.stat().st_size,
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            })
+    return {"ok": True, "directory": directory, "files": files}
+
+
+# ── 7. Tools Catalog ─────────────────────────────────────────────
+
+@app.get("/api/admin/tools")
+async def list_all_tools():
+    """List all tool modules and their functions."""
+    from agents_runtime.agents import TOOL_SETS
+    catalog = {}
+    for agent_name, tools in TOOL_SETS.items():
+        for t in tools:
+            if t.name not in catalog:
+                catalog[t.name] = {
+                    "name": t.name,
+                    "description": getattr(t, "description", ""),
+                    "used_by": [],
+                }
+            catalog[t.name]["used_by"].append(agent_name)
+
+    return {
+        "ok": True,
+        "total": len(catalog),
+        "tools": catalog,
+    }
+
+
+# ── 8. Server Status (detailed) ──────────────────────────────────
+
+@app.get("/api/admin/status")
+async def admin_status():
+    """Detailed server status for admin panel."""
+    from agents_runtime.agents import TOOL_SETS, AGENT_MODELS
+    from agents_runtime.memory import get_checkpointer
+    import sys
+
+    return {
+        "ok": True,
+        "version": "2.0.0",
+        "python": sys.version,
+        "agents": len(TOOL_SETS),
+        "total_tools": sum(len(v) for v in TOOL_SETS.values()),
+        "persistent_memory": get_checkpointer() is not None,
+        "chat_sessions": len(_chat_sessions),
+        "log_entries": len(_log_buffer),
+        "uptime_ts": datetime.utcnow().isoformat(),
+        "souls_dir": str(SOULS_DIR),
+        "upload_dir": str(UPLOAD_DIR),
+    }
