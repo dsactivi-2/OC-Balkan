@@ -16,6 +16,7 @@ const port = Number(process.env.PORT || 4173);
 const adminToken = process.env.ADMIN_TOKEN || "";
 const leadWebhookUrl = process.env.LEAD_WEBHOOK_URL || "";
 const orderWebhookUrl = process.env.ORDER_WEBHOOK_URL || "";
+const avaBaseUrl = process.env.AVA_BASE_URL || "http://ava:8000";
 const provisionScript = process.env.PROVISION_SCRIPT || "";
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
@@ -226,6 +227,21 @@ app.post("/api/orders", (req, res) => {
       // Fire webhooks and provisioning asynchronously
       await forwardWebhook(orderWebhookUrl, { id, orderRef, ...orderPayload });
       triggerProvision(orderRef, bundle.id);
+
+      // Notify AVA agent runtime about the new order
+      forwardWebhook(`${avaBaseUrl}/api/webhook/order`, {
+        event: "new_order",
+        orderRef,
+        bundleId: bundle.id,
+        bundleName: bundle.name,
+        price: bundle.price,
+        customerName: orderPayload.name,
+        company: orderPayload.company,
+        email: orderPayload.email,
+        phone: orderPayload.phone,
+        preferredChannel: channel,
+        market: orderPayload.market || "ba",
+      });
 
       res.json({ ok: true, id, orderRef, bundle: bundle.name, price: bundle.price });
     } catch (err) {

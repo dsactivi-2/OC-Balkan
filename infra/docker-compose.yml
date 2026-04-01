@@ -80,6 +80,7 @@ services:
       - OPENCLAW_CONTAINER=openclaw-platform
       - ALLOWED_ORIGINS=https://${DOMAIN}
       - ONBOARDING_WEBHOOK_URL=${ONBOARDING_WEBHOOK_URL:-}
+      - AVA_BASE_URL=http://ava:8000
     volumes:
       - openclaw-data:/app/data
       - openclaw-uploads:/app/uploads
@@ -216,6 +217,64 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─── AVA Agent Runtime (Zero-Human Company Brain) ───
+  ava:
+    build:
+      context: ..
+      dockerfile: agents_runtime/Dockerfile
+    container_name: openclaw-ava
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://37.27.71.134:14000}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      - MODEL_SMART=${MODEL_SMART:-claude-sonnet-4-6}
+      - MODEL_FAST=${MODEL_FAST:-claude-haiku-4-5-20251001}
+      - VIBER_AUTH_TOKEN=${VIBER_AUTH_TOKEN:-}
+      - WHATSAPP_API_URL=${WHATSAPP_API_URL:-}
+      - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-hallo@openclawbalkan.ba}
+      - HETZNER_API_TOKEN=${HETZNER_API_TOKEN:-}
+      - HETZNER_DNS_TOKEN=${HETZNER_DNS_TOKEN:-}
+      - WEBSITE_BASE_URL=https://${DOMAIN}
+      - OPENCLAW_PLATFORM_URL=http://openclaw-platform:18789
+      - SERVER_IP=${SERVER_IP:-116.203.236.137}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - FACEBOOK_PAGE_TOKEN=${FACEBOOK_PAGE_TOKEN:-}
+      - INSTAGRAM_ACCESS_TOKEN=${INSTAGRAM_ACCESS_TOKEN:-}
+      - LINKEDIN_ACCESS_TOKEN=${LINKEDIN_ACCESS_TOKEN:-}
+      - ADMIN_VIBER_ID=${ADMIN_VIBER_ID:-}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-ds.selmanovic@gmail.com}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      openclaw:
+        condition: service_healthy
+      openclaw-platform:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:
