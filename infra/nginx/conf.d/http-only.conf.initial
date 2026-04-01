@@ -1,0 +1,36 @@
+# ============================================
+# OpenClaw Balkan — Initial HTTP-Only Config
+# ============================================
+# Use this config BEFORE SSL certificates exist.
+# The deploy script will swap this for default.conf
+# after Certbot has obtained the first certificate.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+
+    # Certbot challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Health check
+    location /health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    # Proxy to OpenClaw (no SSL yet)
+    location / {
+        proxy_pass http://openclaw_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

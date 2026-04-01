@@ -1,0 +1,25 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Backups (stored locally, not in git)
+backups/*.sql.gz
+backups/*.tar.gz
+
+# SSL certificates
+nginx/ssl/live/
+nginx/ssl/archive/
+nginx/ssl/renewal/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
