@@ -57,9 +57,11 @@ services:
           cpus: '0.25'
           memory: 128M
 
-  # ─── OpenClaw Application ───
+  # ─── OpenClaw Website (Landing Page) ───
   openclaw:
-    image: openclaw/openclaw:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
     container_name: openclaw-app
     restart: unless-stopped
     env_file: .env
@@ -68,7 +70,7 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - SECRET_KEY=${OPENCLAW_SECRET_KEY}
       - NODE_ENV=production
-      - PORT=${OPENCLAW_PORT:-3000}
+      - PORT=${OPENCLAW_PORT:-4173}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
@@ -83,7 +85,7 @@ services:
       - frontend
       - backend
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${OPENCLAW_PORT:-3000}/api/health"]
+      test: ['CMD-SHELL', 'node -e "fetch(\"http://localhost:4173/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -96,6 +98,46 @@ services:
         reservations:
           cpus: '1'
           memory: 1G
+
+  # ─── OpenClaw AI Platform (Official Image) ───
+  openclaw-platform:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw-platform
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/openclaw_platform
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - SECRET_KEY=${OPENCLAW_SECRET_KEY}
+      - NODE_ENV=production
+      - PORT=18789
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - platform-data:/app/data
+      - platform-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:18789/ || curl -sf http://localhost:18789/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # ─── PostgreSQL ───
   postgres:
@@ -176,7 +218,7 @@ services:
 
   # ─── Watchtower (Auto-Update Containers) ───
   watchtower:
-    image: containrrr/watchtower:1.7.1
+    image: ghcr.io/containrrr/watchtower:latest
     container_name: openclaw-watchtower
     restart: unless-stopped
     environment:
@@ -186,6 +228,7 @@ services:
       - WATCHTOWER_LABEL_ENABLE=false
       # Only update specific containers
       - WATCHTOWER_SCOPE=openclaw
+      - DOCKER_API_VERSION=1.40
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
@@ -207,6 +250,10 @@ volumes:
   openclaw-data:
     driver: local
   openclaw-uploads:
+    driver: local
+  platform-data:
+    driver: local
+  platform-uploads:
     driver: local
   certbot-webroot:
     driver: local

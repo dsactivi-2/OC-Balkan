@@ -129,7 +129,12 @@ sed -i 's/^#*X11Forwarding.*/X11Forwarding no/' "$SSHD_CONFIG"
 
 # Validate sshd_config before restarting
 sshd -t || err "Invalid sshd_config"
-systemctl restart sshd
+# Ubuntu 24.04 uses ssh.service, not sshd
+    if systemctl list-units --type=service | grep -q "ssh.service"; then
+        systemctl restart ssh
+    else
+        systemctl restart sshd
+    fi
 log "SSH hardened (key-only, max 3 attempts)"
 
 # ─── Step 7: Prepare & Start Services ───
